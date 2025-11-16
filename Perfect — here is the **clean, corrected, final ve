@@ -1,0 +1,358 @@
+Perfect — here is the **clean, corrected, final version** of the EVO architecture file, with **no confusing numbering**, fully aligned with your AFML core and EVO expansion layers.
+
+This is **exactly what you paste into `prado9_evo.md`.**
+
+---
+
+# 📄 **prado9_evo.md — PRADO9 Evolution Architecture (Mini-Medallion Edition)**
+
+## **Overview**
+
+PRADO9_EVO transforms PRADO9 from a traditional AFML-compliant quant engine into a **self-improving, regime-adaptive, multi-strategy trading organism**, inspired by the adaptive intelligence principles behind Renaissance Technologies’ Medallion Fund.
+
+It preserves **full AFML methodology** while adding a new **Evolution Engine** capable of learning, evolving, and reallocating alpha sources dynamically.
+
+The system is operable via simple MacBook-friendly CLI commands:
+
+```
+prado train <symbol> start %mm %dd %yyyy end %mm %dd %yyyy
+prado backtest <symbol> --standard
+prado backtest <symbol> --walk-forward
+prado backtest <symbol> --crisis
+prado backtest <symbol> --monte-carlo <n>
+prado predict <symbol>
+```
+
+---
+
+# 🧠 **Two-Part System Architecture**
+
+PRADO9_EVO is organized into two parts:
+
+---
+
+# **PART I — AFML Core (Existing PRADO9 Foundation)**
+
+These ten modules already form a complete AFML-compliant research/trading pipeline.
+
+## **Module 1 — Data & Events**
+
+* CUSUM event detection
+* Advanced bar types (dollar, volume, volatility)
+* Microstructure signals (OFI, VPIN, Kyle Lambda)
+
+## **Module 2 — Labeling**
+
+* Triple-barrier method
+* Meta-labels
+* Sample weights (uniqueness + time-decay)
+
+## **Module 3 — Feature Engineering**
+
+* Stationarity (fractional differencing)
+* Volatility estimators
+* Technical/microstructure features
+* Event-aligned feature matrix
+
+## **Module 4 — Regime Detection**
+
+* Trend regime
+* Volatility regime
+* Spike regime
+* Unified primary regime classification
+
+## **Module 5 — Strategy Catalog**
+
+* Momentum
+* Mean-reversion
+* Volatility breakout
+* Pairs trading
+* Scalping
+* Seasonality
+* Sentiment
+  (All trainable per-regime)
+
+## **Module 6 — Training Protocol**
+
+* Purged K-Fold
+* CPCV
+* Sample-weighted fitting
+* Meta-model training
+* Per-regime model persistence
+
+## **Module 7 — Meta-Selector**
+
+* Regime compatibility gate
+* Performance filters
+* Confidence filters
+* Strategy acceptance logic
+
+## **Module 8 — Allocator**
+
+* Softmax ensemble
+* Correlation penalty
+* Conflict ratio scaling
+* Kelly-style risk targeting
+
+## **Module 9 — Execution**
+
+* Slippage model
+* Market/limit execution
+* Spread forecasting
+* Trade lifecycle tracking
+
+## **Module 10 — Evaluation Suite**
+
+* Standard backtest
+* Walk-forward optimization
+* Crisis testing
+* Monte Carlo skill assessment
+  (All AFML compliant)
+
+---
+
+# **PART II — EVO Engine (Mini-Medallion Expansion Layer)**
+
+These ten modules **extend** PRADO9 into a self-optimizing, continuously-learning system.
+They do **not replace** AFML; they build *on top* of it.
+
+---
+
+# **Module A — Bandit Brain (Hierarchical Thompson Sampling)**
+
+A three-level adaptive bandit system:
+
+1. **Strategy Selection Bandit**
+   Learns which strategy works best in which regime.
+
+2. **Hyperparameter Bandit**
+   Learns which parameter sets produce the highest future Sharpe.
+
+3. **Regime Confidence Bandit**
+   Learns how correct the regime classifier tends to be.
+
+Creates a continuously learning selection brain.
+
+---
+
+# **Module B — Strategy Genome**
+
+Each strategy receives a genome encoding:
+
+* Model type
+* Hyperparameters
+* Barrier settings
+* Feature subset
+* Volatility filter
+* Holding period
+* Regime compatibility
+* Return horizon
+* Ensemble weight behavior
+
+This genome is used for mutation, crossover, and fitness evaluation.
+
+---
+
+# **Module C — Evolution Engine**
+
+Implements evolution of strategies using:
+
+* Genetic algorithms
+* Bayesian hyperparameter search
+* Walk-forward fitness scoring
+* Regime-segmented performance
+
+Weak strategies die.
+Strong strategies survive and pass traits.
+
+This is the heart of “mini-Medallion” behavior.
+
+---
+
+# **Module D — Meta-Learner (Strategy Performance Predictor)**
+
+A meta-model predicts:
+
+> “Which strategy is expected to outperform *before it runs*?”
+
+Inputs include:
+
+* Current regime state
+* Volatility regime
+* Microstructure metrics
+* Strategy win-rate history
+* Rolling Sharpe/drawdown
+* Correlation clusters
+* Forecast dispersion
+
+Output:
+A probability distribution over strategy outperformance.
+
+---
+
+# **Module E — Performance Memory Store**
+
+A persistent long-term memory system:
+
+* Per-strategy
+* Per-regime
+* Per-hyperparameter
+* Per-market state
+
+Used for:
+
+* Bandit reward updates
+* Meta-learner training
+* Evolutionary genome fitness
+
+Stored across runs → engine gets smarter over months/years.
+
+---
+
+# **Module F — Correlation Cluster Engine**
+
+Clusters strategies by correlation to avoid over-weighting duplicated alpha.
+
+* K-means or spectral clustering
+* Cluster-level Sharpe and drawdown
+* Penalizes correlated clusters
+* Boosts uncorrelated alpha sources
+
+Avoids “fake diversification.”
+
+---
+
+# **Module G — Evolutionary Allocator**
+
+Allocator combines:
+
+* Softmax ensemble
+* Thompson sampling outputs
+* Kelly sizing
+* Correlation penalties
+* Genome fitness weights
+* Meta-learner probabilities
+
+Produces a **final position** that reflects:
+
+* strategy fitness
+* regime
+* correlation
+* confidence
+* execution quality
+
+---
+
+# **Module H — Execution Alpha Engine**
+
+Add microstructure-sensitive execution:
+
+* Order Flow Imbalance (OFI)
+* VPIN
+* microstructure volatility
+* liquidity regime detection
+* dynamic slippage adjustments
+* smart order routing (simulated)
+
+Execution becomes a source of alpha rather than a cost.
+
+---
+
+# **Module I — Continuous Learning Loop**
+
+After each prediction or backtest:
+
+* Bandits update
+* Meta-learner updates
+* Genome fitness recalculated
+* Allocator learns
+* Performance memory updated
+* Execution engine calibrates
+* Regime classifier retrains incrementally
+
+This is what makes PRADO9_EVO a **self-improving organism**, not a static model.
+
+---
+
+# **Module J — EVO Backtest Suite**
+
+Backtests evaluate not just performance, but **learning**:
+
+* Evolutionary Sharpe
+* Genome stability
+* Strategy extinction rates
+* Bandit confidence convergence
+* Meta-learner accuracy
+* Execution slippage improvements
+* Alpha source diversification scores
+
+This suite ensures that evolution actually adds value.
+
+---
+
+# 🔧 **CLI (Mac-Friendly Terminal Workflow)**
+
+### Training
+
+```
+prado train QQQ start 01 01 2020 end 12 31 2024
+```
+
+### Prediction
+
+```
+prado predict QQQ
+```
+
+### Backtests
+
+```
+prado backtest QQQ --standard
+prado backtest QQQ --walk-forward
+prado backtest QQQ --crisis
+prado backtest QQQ --monte-carlo 10000
+```
+
+EVO Backtests use the same interface.
+
+---
+
+# 📐 **Unified Pipeline**
+
+```
+Raw OHLCV → Events → Labels → Features → Regimes
+      → Strategy Training → Meta-Label → EVO Engine
+      → Predict → Allocate → Execute → Learn → Repeat
+```
+
+---
+
+# 🧩 **What PRADO9_EVO Becomes**
+
+* AFML-pure
+* Evolutionary
+* Regime-adaptive
+* Multi-strategy
+* Self-optimizing
+* Execution-aware
+* Continuously learning
+
+**A realistic miniature Medallion framework.**
+
+---
+
+# ✔️ This is the file to save as `prado9_evo.md`
+
+If you want:
+
+### **A)** Start building Module 0.1 (Skeleton EVO Builder Prompt)
+
+### **B)** Generate the full EVO Builder + Sweep series for Modules A–J
+
+### **C)** Add diagrams
+
+### **D)** Add a technical appendix
+
+### **E)** Add comments for collaborators
+
+Just tell me **A, B, C, D, or E**.
