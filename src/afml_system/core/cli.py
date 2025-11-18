@@ -164,7 +164,7 @@ def train(
             task = progress.add_task("Training models via backtest...", total=None)
 
             # Run backtest (this trains everything)
-            result = backtest.run(data)
+            result = backtest.run_standard(symbol=symbol, df=data)
 
             progress.update(task, completed=True)
 
