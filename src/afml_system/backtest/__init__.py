@@ -17,6 +17,8 @@ Version: 1.0.0
 
 from .backtest_engine import (
     BacktestEngine,
+    BacktestConfig,
+    BacktestResult,
     evo_backtest_standard,
     evo_backtest_walk_forward,
     evo_backtest_crisis,
@@ -43,6 +45,8 @@ from .reporting import (
 __all__ = [
     # Main Engine
     'BacktestEngine',
+    'BacktestConfig',
+    'BacktestResult',
     # Integration Hooks
     'evo_backtest_standard',
     'evo_backtest_walk_forward',
