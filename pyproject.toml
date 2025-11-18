@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prado-evo"
+version = "1.0.0"
+description = "PRADO9_EVO - Advanced Financial Machine Learning Trading System"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "PRADO9_EVO Builder", email = "builder@prado.dev"}
+]
+keywords = ["trading", "machine-learning", "quantitative-finance", "algorithmic-trading"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+dependencies = [
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "scikit-learn>=1.3.0",
+    "scipy>=1.11.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "yfinance>=0.2.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+]
+
+[project.scripts]
+prado = "afml_system.core.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/yourusername/prado-evo"
+Documentation = "https://github.com/yourusername/prado-evo/docs"
+Repository = "https://github.com/yourusername/prado-evo"
+
+[tool.setuptools]
+packages = ["afml_system"]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+afml_system = ["**/*.json", "**/*.yaml", "**/*.yml"]
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+include = '\.pyi?$'
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false

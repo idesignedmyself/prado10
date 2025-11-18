@@ -1,0 +1,195 @@
+#!/usr/bin/env python3
+"""
+PRADO CLI - Command-line interface for PRADO9_EVO trading system
+
+Usage:
+    prado train <symbol> [--start DATE] [--end DATE]
+    prado backtest <symbol> [--strategy NAME]
+    prado live <symbol> [--mode MODE]
+    prado --help
+
+Commands:
+    train       Train models on historical data
+    backtest    Run backtest simulation
+    live        Start live trading engine
+
+Options:
+    --start     Start date (YYYY-MM-DD)
+    --end       End date (YYYY-MM-DD)
+    --strategy  Strategy name (momentum, mean_reversion, etc.)
+    --mode      Trading mode (simulate, paper, live)
+    --help      Show this help message
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent / "src"))
+
+
+def print_usage():
+    print(__doc__)
+
+
+def cmd_train(symbol, start_date=None, end_date=None):
+    """Train models on historical data."""
+    print(f"🔬 Training PRADO9_EVO on {symbol.upper()}...")
+    print(f"   Start: {start_date or 'Auto'}")
+    print(f"   End: {end_date or 'Auto'}")
+    print()
+
+    # TODO: Implement training pipeline
+    # This would integrate Modules A-F for research/training
+
+    print("⚠️  Training pipeline not yet implemented.")
+    print("   This will integrate:")
+    print("   - Module A: Bandit Brain (strategy selection)")
+    print("   - Module B: Feature Engineering")
+    print("   - Module C: Labeling System")
+    print("   - Module D: Meta-Learner")
+    print("   - Module E: Sample Weights")
+    print("   - Module F: Correlation Engine")
+    print()
+    print("💡 For now, you can use the live trading engine in simulate mode:")
+    print(f"   prado live {symbol} --mode simulate")
+
+
+def cmd_backtest(symbol, strategy=None):
+    """Run backtest simulation."""
+    print(f"📊 Running backtest on {symbol.upper()}...")
+    print(f"   Strategy: {strategy or 'All strategies'}")
+    print()
+
+    # TODO: Implement backtest pipeline
+    # This would integrate Modules G-I
+
+    print("⚠️  Backtest pipeline not yet implemented.")
+    print("   This will integrate:")
+    print("   - Module G: Evolutionary Allocator")
+    print("   - Module H: Execution Engine")
+    print("   - Module I: Performance Analytics")
+    print()
+    print("💡 For now, you can use the live trading engine in simulate mode:")
+    print(f"   prado live {symbol} --mode simulate")
+
+
+def cmd_live(symbol, mode='simulate'):
+    """Start live trading engine."""
+    print(f"🚀 Starting PRADO9_EVO Live Trading Engine")
+    print(f"   Symbol: {symbol.upper()}")
+    print(f"   Mode: {mode}")
+    print()
+
+    try:
+        from afml_system.live import LiveTradingEngine, EngineConfig
+        from afml_system.live import momentum_strategy, mean_reversion_strategy
+
+        # Configure engine
+        config = EngineConfig(
+            symbols=[symbol.upper()],
+            mode=mode,
+            poll_interval=60.0,  # 1 minute
+            check_market_hours=True,
+            initial_cash=100000.0,
+            enable_logging=True,
+            enable_console=True
+        )
+
+        # Define strategies
+        strategies = {
+            'momentum': momentum_strategy,
+            'mean_reversion': mean_reversion_strategy
+        }
+
+        # Create and start engine
+        print("✓ Engine configured")
+        print("✓ Strategies loaded: momentum, mean_reversion")
+        print()
+        print("Starting engine... (Press Ctrl+C to stop)")
+        print("=" * 80)
+        print()
+
+        engine = LiveTradingEngine(config, strategies=strategies)
+        engine.start()
+
+    except KeyboardInterrupt:
+        print("\n\n⏹️  Engine stopped by user")
+        if 'engine' in locals():
+            engine.stop()
+    except Exception as e:
+        print(f"\n❌ Error: {e}")
+        print(f"\n💡 Make sure you're running from the prado_evo directory")
+        sys.exit(1)
+
+
+def main():
+    if len(sys.argv) < 2:
+        print_usage()
+        sys.exit(1)
+
+    command = sys.argv[1]
+
+    if command == '--help' or command == '-h':
+        print_usage()
+        sys.exit(0)
+
+    if command == 'train':
+        if len(sys.argv) < 3:
+            print("❌ Error: Symbol required")
+            print("Usage: prado train <symbol>")
+            sys.exit(1)
+
+        symbol = sys.argv[2]
+
+        # Parse optional arguments
+        start_date = None
+        end_date = None
+
+        for i in range(3, len(sys.argv)):
+            if sys.argv[i] == '--start' and i + 1 < len(sys.argv):
+                start_date = sys.argv[i + 1]
+            elif sys.argv[i] == '--end' and i + 1 < len(sys.argv):
+                end_date = sys.argv[i + 1]
+
+        cmd_train(symbol, start_date, end_date)
+
+    elif command == 'backtest':
+        if len(sys.argv) < 3:
+            print("❌ Error: Symbol required")
+            print("Usage: prado backtest <symbol>")
+            sys.exit(1)
+
+        symbol = sys.argv[2]
+        strategy = None
+
+        for i in range(3, len(sys.argv)):
+            if sys.argv[i] == '--strategy' and i + 1 < len(sys.argv):
+                strategy = sys.argv[i + 1]
+
+        cmd_backtest(symbol, strategy)
+
+    elif command == 'live':
+        if len(sys.argv) < 3:
+            print("❌ Error: Symbol required")
+            print("Usage: prado live <symbol>")
+            sys.exit(1)
+
+        symbol = sys.argv[2]
+        mode = 'simulate'
+
+        for i in range(3, len(sys.argv)):
+            if sys.argv[i] == '--mode' and i + 1 < len(sys.argv):
+                mode = sys.argv[i + 1]
+
+        cmd_live(symbol, mode)
+
+    else:
+        print(f"❌ Unknown command: {command}")
+        print_usage()
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
