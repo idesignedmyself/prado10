@@ -4,7 +4,7 @@
 
 PRADO9_EVO is an advanced quantitative trading system combining Advances in Financial Machine Learning (AFML) with evolutionary algorithms for adaptive, regime-aware strategy selection.
 
-**Current Version:** 2.1.0
+**Current Version:** 2.1.1
 **Status:** Production-ready
 **Last Updated:** 2025-01-18
 
@@ -102,6 +102,31 @@ Regime Coverage: Full coverage across all 5 regimes
 ---
 
 ## Detailed Changelog
+
+### [2.1.1] - 2025-01-18 - SWEEP X.1: Volatility Target Determinism Test
+
+**Added:**
+- `SWEEP_X1_COMPLETE.md` - Comprehensive validation documentation
+
+**Validated:**
+- ✅ Deterministic behavior (100% reproducibility)
+- ✅ ATR calculation matches institutional formulas
+- ✅ Position size drops in high ATR regimes
+- ✅ Position size grows in low ATR regimes (capped at 3x)
+- ✅ No infinite leverage or runaway exposure
+- ✅ No conflicts with allocator or other modules
+- ✅ All edge cases handled gracefully
+- ✅ 10/10 tests passed (100%)
+
+**Mathematical Verification:**
+- True Range formula validated
+- ATR moving average correct
+- Position scaling formula verified
+- Leverage capping working correctly
+
+**Status:** Module X production-ready with comprehensive determinism validation
+
+---
 
 ### [2.1.0] - 2025-01-18 - Module X: ATR Volatility Targeting
 
