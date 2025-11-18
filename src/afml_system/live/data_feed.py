@@ -160,6 +160,11 @@ class LiveDataFeed:
         # Error count (for backoff)
         self.error_count: Dict[str, int] = {}
 
+        # Retry settings (Sweep J.1)
+        self.max_retries = 3
+        self.min_bars_required = 50
+        self.max_data_age_seconds = 3600  # 1 hour
+
     def get_latest_price(self, symbol: str) -> float:
         """
         Get latest price for symbol.
@@ -185,7 +190,7 @@ class LiveDataFeed:
         lookback: int = 200
     ) -> pd.DataFrame:
         """
-        Get recent bars for symbol.
+        Get recent bars for symbol (Sweep J.1: Enhanced with retry and fallback).
 
         Args:
             symbol: Trading symbol
@@ -204,27 +209,69 @@ class LiveDataFeed:
         # Clip lookback
         lookback = min(lookback, MAX_LOOKBACK_BARS)
 
-        # Fetch based on source
-        result = self._fetch_data(symbol, lookback)
+        # Retry loop (Sweep J.1)
+        for attempt in range(self.max_retries):
+            # Fetch based on source
+            result = self._fetch_data(symbol, lookback)
 
-        # Update last fetch time
-        self.last_fetch_time[symbol] = time.time()
+            # Update last fetch time
+            self.last_fetch_time[symbol] = time.time()
 
-        # Cache result if valid
-        if result.is_valid():
-            self.last_result[symbol] = result
-            self.error_count[symbol] = 0
-            self._save_to_cache(symbol, result.df)
-        else:
-            # Increment error count
-            self.error_count[symbol] = self.error_count.get(symbol, 0) + 1
+            # Validate data (Sweep J.1)
+            if result.is_valid() and self._validate_data(result):
+                # Success - cache and return
+                self.last_result[symbol] = result
+                self.error_count[symbol] = 0
+                self._save_to_cache(symbol, result.df)
+                return result.df
+            else:
+                # Failure - backoff before retry
+                if attempt < self.max_retries - 1:
+                    time.sleep(2 ** attempt)  # Exponential backoff
 
-            # Try to load from cache
-            cached_df = self._load_from_cache(symbol)
-            if cached_df is not None and not cached_df.empty:
-                return cached_df
+        # All retries failed - increment error count and try cache
+        self.error_count[symbol] = self.error_count.get(symbol, 0) + 1
 
-        return result.df
+        # Final fallback to cache (Sweep J.1)
+        cached_df = self._load_from_cache(symbol)
+        if cached_df is not None and not cached_df.empty:
+            return cached_df
+
+        return pd.DataFrame()
+
+    def _validate_data(self, result: DataFeedResult) -> bool:
+        """
+        Validate data freshness and completeness (Sweep J.1).
+
+        Args:
+            result: DataFeedResult to validate
+
+        Returns:
+            True if valid, False otherwise
+        """
+        if result.df.empty:
+            return False
+
+        if len(result.df) < self.min_bars_required:
+            return False
+
+        # Check timestamp freshness
+        if hasattr(result.df.index, '__getitem__') and len(result.df) > 0:
+            try:
+                latest_ts = result.df.index[-1]
+                if hasattr(latest_ts, 'to_pydatetime'):
+                    latest_ts = latest_ts.to_pydatetime()
+                elif isinstance(latest_ts, str):
+                    latest_ts = datetime.fromisoformat(latest_ts)
+
+                age = abs((datetime.now() - latest_ts).total_seconds())
+                if age > self.max_data_age_seconds:
+                    return False
+            except Exception:
+                # If we can't validate timestamp, allow it
+                pass
+
+        return True
 
     def stream(
         self,
@@ -740,10 +787,92 @@ if __name__ == "__main__":
     print("  ✓ Unknown source error handling working")
 
     # ========================================================================
+    # TEST 9: Data Validation (Sweep J.1)
+    # ========================================================================
+    print("\n[TEST 9] Data Validation (Sweep J.1)")
+    print("-" * 80)
+
+    feed_validation = LiveDataFeed(source='local')
+
+    # Create valid result (enough bars, recent timestamps to pass freshness check)
+    from datetime import timedelta
+    df_valid = pd.DataFrame({
+        'Open': [100.0] * 100,
+        'Close': [101.0] * 100
+    }, index=pd.date_range(datetime.now() - timedelta(hours=1), periods=100, freq='1min'))
+
+    result_valid = DataFeedResult(
+        df=df_valid,
+        timestamp=datetime.now(),
+        source='test',
+        symbol='SPY'
+    )
+
+    is_valid = feed_validation._validate_data(result_valid)
+    print(f"  Valid data (100 bars): {is_valid}")
+    assert is_valid, "Should be valid"
+
+    # Create invalid result (too few bars)
+    df_invalid = pd.DataFrame({
+        'Open': [100.0] * 10,
+        'Close': [101.0] * 10
+    })
+
+    result_invalid = DataFeedResult(
+        df=df_invalid,
+        timestamp=datetime.now(),
+        source='test',
+        symbol='SPY'
+    )
+
+    is_invalid = feed_validation._validate_data(result_invalid)
+    print(f"  Invalid data (10 bars, min 50 required): {is_invalid}")
+    assert not is_invalid, "Should be invalid"
+
+    print("  ✓ Data validation working")
+
+    # ========================================================================
+    # TEST 10: Retry and Fallback (Sweep J.1)
+    # ========================================================================
+    print("\n[TEST 10] Retry and Fallback (Sweep J.1)")
+    print("-" * 80)
+
+    temp_dir = Path(tempfile.mkdtemp())
+
+    try:
+        feed_retry = LiveDataFeed(source='unknown_source', cache_dir=temp_dir)
+
+        # Pre-populate cache
+        df_cache = pd.DataFrame({
+            'Open': [100.0] * 100,
+            'High': [102.0] * 100,
+            'Low': [99.0] * 100,
+            'Close': [101.0] * 100,
+            'Volume': [1000000] * 100
+        }, index=pd.date_range('2024-01-01', periods=100, freq='D'))
+
+        feed_retry._save_to_cache('RETRY_TEST', df_cache)
+
+        # Try to fetch (will fail all retries, fallback to cache)
+        df = feed_retry.get_recent_bars('RETRY_TEST', lookback=100)
+
+        print(f"  Fetch failed (unknown source)")
+        print(f"  Fallback to cache successful: {not df.empty}")
+        print(f"  Rows from cache: {len(df)}")
+
+        assert not df.empty, "Should fallback to cache"
+        assert len(df) == 100, "Should have cached data"
+
+        print("  ✓ Retry and fallback working")
+
+    finally:
+        shutil.rmtree(temp_dir)
+
+    # ========================================================================
     # SUMMARY
     # ========================================================================
     print("\n" + "=" * 80)
-    print("ALL MODULE J.1 TESTS PASSED (8 TESTS)")
+    print("ALL MODULE J.1 TESTS PASSED (10 TESTS) - Sweep J.1 Enhanced")
     print("=" * 80)
     print("\nLive Data Feed Features:")
     print("  ✓ Multi-source support (yfinance, alpaca, local)")
@@ -754,5 +883,9 @@ if __name__ == "__main__":
     print("  ✓ Deterministic fallback behavior")
     print("  ✓ CSV support for local testing")
     print("  ✓ Streaming mode with callbacks")
-    print("\nModule J.1 — Live Data Feed: PRODUCTION READY")
+    print("\nSweep J.1 Enhancements:")
+    print("  ✓ Retry logic (3 attempts with exponential backoff)")
+    print("  ✓ Data validation (minimum bars, freshness check)")
+    print("  ✓ Enhanced fallback (cache on all retry failures)")
+    print("\nModule J.1 — Live Data Feed: PRODUCTION READY (Sweep J.1 Enhanced)")
     print("=" * 80)

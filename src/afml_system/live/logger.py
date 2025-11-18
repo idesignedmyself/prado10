@@ -115,6 +115,9 @@ class LiveLogger:
         self.json_file = self.log_dir / f"live_{self.current_date}.json"
         self.text_file = self.log_dir / f"live_{self.current_date}.log"
 
+        # Size rotation (Sweep J.1)
+        self.max_file_size = 10 * 1024 * 1024  # 10MB
+
     def _check_rotation(self):
         """Check if log rotation is needed."""
         current_date = datetime.now().strftime('%Y%m%d')
@@ -127,13 +130,22 @@ class LiveLogger:
 
     def _write_entry(self, entry: LogEntry):
         """
-        Write log entry to files.
+        Write log entry to files (Sweep J.1: Enhanced with size rotation and JSON safety).
 
         Args:
             entry: LogEntry to write
         """
         # Check rotation
         self._check_rotation()
+
+        # Check size rotation (Sweep J.1)
+        if self.json_file.exists() and self.json_file.stat().st_size > self.max_file_size:
+            self._rotate_by_size('json')
+        if self.text_file.exists() and self.text_file.stat().st_size > self.max_file_size:
+            self._rotate_by_size('text')
+
+        # Sanitize entry for JSON safety (Sweep J.1)
+        entry = self._sanitize_entry(entry)
 
         # Console output
         if self.enable_console:
@@ -154,6 +166,52 @@ class LiveLogger:
                     f.write(entry.to_text_line() + '\n')
             except Exception:
                 pass  # Silent fail
+
+    def _sanitize_entry(self, entry: LogEntry) -> LogEntry:
+        """
+        Sanitize log entry for JSON safety (Sweep J.1).
+
+        Args:
+            entry: LogEntry to sanitize
+
+        Returns:
+            Sanitized LogEntry
+        """
+        import numpy as np
+
+        sanitized_metadata = {}
+        for key, value in entry.metadata.items():
+            if isinstance(value, (datetime,)):
+                sanitized_metadata[key] = value.isoformat()
+            elif isinstance(value, (np.integer, np.floating)):
+                sanitized_metadata[key] = float(value)
+            elif isinstance(value, np.ndarray):
+                sanitized_metadata[key] = value.tolist()
+            elif isinstance(value, float) and (np.isnan(value) or np.isinf(value)):
+                sanitized_metadata[key] = 0.0
+            else:
+                sanitized_metadata[key] = value
+
+        entry.metadata = sanitized_metadata
+        return entry
+
+    def _rotate_by_size(self, log_type: str):
+        """
+        Rotate log file by size (Sweep J.1).
+
+        Args:
+            log_type: 'json' or 'text'
+        """
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        if log_type == 'json':
+            new_name = self.log_dir / f"live_{self.current_date}_{timestamp}.json"
+            self.json_file.rename(new_name)
+            self.json_file = self.log_dir / f"live_{self.current_date}.json"
+        elif log_type == 'text':
+            new_name = self.log_dir / f"live_{self.current_date}_{timestamp}.log"
+            self.text_file.rename(new_name)
+            self.text_file = self.log_dir / f"live_{self.current_date}.log"
 
     def log_event(
         self,
@@ -582,10 +640,45 @@ if __name__ == "__main__":
         print("  ✓ Integration hook working")
 
         # ====================================================================
+        # TEST 11: JSON Safety (Sweep J.1)
+        # ====================================================================
+        print("\n[TEST 11] JSON Safety (Sweep J.1)")
+        print("-" * 80)
+
+        import numpy as np
+
+        logger_json = LiveLogger(log_dir=temp_dir, enable_console=False)
+
+        # Log entry with numpy types
+        logger_json.log_event('test', 'JSON safety test', {
+            'numpy_int': np.int64(42),
+            'numpy_float': np.float64(3.14),
+            'numpy_array': np.array([1, 2, 3]),
+            'nan_value': float('nan'),
+            'inf_value': float('inf')
+        })
+
+        # Read and parse
+        with open(logger_json.json_file, 'r') as f:
+            line = f.readline()
+            entry = json.loads(line)
+
+        print(f"  JSON entry parsed successfully")
+        print(f"  numpy_int type: {type(entry['metadata']['numpy_int'])}")
+        print(f"  NaN sanitized to: {entry['metadata']['nan_value']}")
+        print(f"  Inf sanitized to: {entry['metadata']['inf_value']}")
+
+        assert isinstance(entry['metadata']['numpy_int'], (int, float)), "Should be JSON type"
+        assert entry['metadata']['nan_value'] == 0.0, "NaN should be sanitized"
+        assert entry['metadata']['inf_value'] == 0.0, "Inf should be sanitized"
+
+        print("  ✓ JSON safety working")
+
+        # ====================================================================
         # SUMMARY
         # ====================================================================
         print("\n" + "=" * 80)
-        print("ALL MODULE J.5 TESTS PASSED (10 TESTS)")
+        print("ALL MODULE J.5 TESTS PASSED (11 TESTS) - Sweep J.1 Enhanced")
         print("=" * 80)
         print("\nLogger Features:")
         print("  ✓ JSON logging")
@@ -599,7 +692,11 @@ if __name__ == "__main__":
         print("  ✓ Daily rotation")
         print("  ✓ Structured metadata")
         print("  ✓ Audit trail")
-        print("\nModule J.5 — Logger: PRODUCTION READY")
+        print("\nSweep J.1 Enhancements:")
+        print("  ✓ JSON type safety (datetime, numpy, NaN/Inf sanitization)")
+        print("  ✓ Size-based rotation (10MB max)")
+        print("  ✓ Enhanced metadata sanitization")
+        print("\nModule J.5 — Logger: PRODUCTION READY (Sweep J.1 Enhanced)")
         print("=" * 80)
 
     finally:
