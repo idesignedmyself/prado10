@@ -122,8 +122,14 @@ def train(
                 console.print(f"[red]Error:[/red] No data retrieved for {symbol}")
                 raise typer.Exit(code=1)
 
-            # Normalize column names to lowercase (yfinance returns capitalized columns)
-            data.columns = [col.lower() for col in data.columns]
+            # Fix yfinance MultiIndex columns (sometimes returns tuples)
+            cols = data.columns
+            if isinstance(cols[0], tuple):
+                # Flatten multiindex: ('Close', 'QQQ') -> 'close_qqq'
+                data.columns = ["_".join(str(c) for c in col).lower() for col in cols]
+            else:
+                # Normal columns: 'Close' -> 'close'
+                data.columns = [str(col).lower() for col in cols]
 
             progress.update(task, completed=True)
 
@@ -305,8 +311,14 @@ def backtest(
             console.print(f"[red]Error:[/red] No data retrieved for {symbol}")
             raise typer.Exit(code=1)
 
-        # Normalize column names to lowercase (yfinance returns capitalized columns)
-        data.columns = [col.lower() for col in data.columns]
+        # Fix yfinance MultiIndex columns (sometimes returns tuples)
+        cols = data.columns
+        if isinstance(cols[0], tuple):
+            # Flatten multiindex: ('Close', 'QQQ') -> 'close_qqq'
+            data.columns = ["_".join(str(c) for c in col).lower() for col in cols]
+        else:
+            # Normal columns: 'Close' -> 'close'
+            data.columns = [str(col).lower() for col in cols]
 
         console.print(f"[green]✓[/green] Loaded {len(data)} bars ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})")
 
