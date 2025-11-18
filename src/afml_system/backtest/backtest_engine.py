@@ -35,6 +35,9 @@ from ..execution import TradeIntent, PortfolioState, evo_execute
 # Module R - Regime Strategy Selector
 from ..regime import RegimeStrategySelector
 
+# Module V - Volatility Strategy Engine
+from ..volatility import VolatilityStrategies
+
 
 # ============================================================================
 # CONSTANTS
@@ -170,6 +173,9 @@ class BacktestEngine:
 
         # Module R - Regime Strategy Selector
         self.regime_selector = RegimeStrategySelector()
+
+        # Module V - Volatility Strategy Engine
+        self.vol_strategies = VolatilityStrategies()
 
     def _validate_and_clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -832,19 +838,36 @@ class BacktestEngine:
             )
             signals.append(mr_signal)
 
-        # Future volatility strategies (placeholders for Module S)
-        # These will be implemented when volatility-based strategies are added
-        # if 'vol_breakout' in active_strategies and hasattr(self, 'vol_breakout'):
-        #     signals.append(self._get_vol_breakout_signal(features, regime, horizon, meta_signals))
-        #
-        # if 'vol_compression' in active_strategies and hasattr(self, 'vol_compression'):
-        #     signals.append(self._get_vol_compression_signal(features, regime, horizon, meta_signals))
-        #
-        # if 'vol_spike_fade' in active_strategies and hasattr(self, 'vol_spike_fade'):
-        #     signals.append(self._get_vol_spike_fade_signal(features, regime, horizon, meta_signals))
-        #
-        # if 'trend_breakout' in active_strategies and hasattr(self, 'trend_breakout'):
-        #     signals.append(self._get_trend_breakout_signal(features, regime, horizon, meta_signals))
+        # Module V: Volatility strategies (if active in current regime)
+        if 'vol_breakout' in active_strategies:
+            vol_signal = self.vol_strategies.vol_breakout(
+                features, regime, horizon, meta_signals.get('meta_signal', 0.5)
+            )
+            signals.append(vol_signal)
+
+        if 'vol_compression' in active_strategies:
+            vol_signal = self.vol_strategies.vol_compression(
+                features, regime, horizon, meta_signals.get('meta_signal', 0.5)
+            )
+            signals.append(vol_signal)
+
+        if 'vol_spike_fade' in active_strategies:
+            vol_signal = self.vol_strategies.vol_spike_fade(
+                features, regime, horizon, meta_signals.get('meta_signal', 0.5)
+            )
+            signals.append(vol_signal)
+
+        if 'vol_mean_revert' in active_strategies:
+            vol_signal = self.vol_strategies.vol_mean_revert(
+                features, regime, horizon, meta_signals.get('meta_signal', 0.5)
+            )
+            signals.append(vol_signal)
+
+        if 'trend_breakout' in active_strategies:
+            trend_signal = self.vol_strategies.trend_breakout(
+                features, regime, horizon, meta_signals.get('meta_signal', 0.5)
+            )
+            signals.append(trend_signal)
 
         # Get correlation data (simplified)
         corr_data = {
