@@ -33,9 +33,9 @@ class RegimeStrategyConfig:
 
 # Default regime-to-strategy mapping
 DEFAULT_REGIME_MAP: Dict[str, List[str]] = {
-    "HIGH_VOL": ["vol_breakout", "vol_spike_fade"],
+    "HIGH_VOL": ["vol_breakout", "vol_spike_fade", "atr_breakout", "range_breakout"],
     "LOW_VOL": ["vol_compression", "mean_reversion"],
-    "TRENDING": ["momentum", "trend_breakout"],
+    "TRENDING": ["momentum", "donchian_breakout", "momentum_surge", "range_breakout"],
     "MEAN_REVERTING": ["mean_reversion", "vol_mean_revert"],
     "NORMAL": ["momentum", "mean_reversion"]
 }

@@ -38,6 +38,9 @@ from ..regime import RegimeStrategySelector
 # Module V - Volatility Strategy Engine
 from ..volatility import VolatilityStrategies
 
+# Module B2 - Trend Breakout Engine
+from ..trend import BreakoutStrategies
+
 
 # ============================================================================
 # CONSTANTS
@@ -176,6 +179,9 @@ class BacktestEngine:
 
         # Module V - Volatility Strategy Engine
         self.vol_strategies = VolatilityStrategies()
+
+        # Module B2 - Trend Breakout Engine
+        self.breakout_strategies = BreakoutStrategies()
 
     def _validate_and_clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -868,6 +874,31 @@ class BacktestEngine:
                 features, regime, horizon, meta_signals.get('meta_signal', 0.5)
             )
             signals.append(trend_signal)
+
+        # Module B2: Breakout strategies (if active in current regime)
+        if 'donchian_breakout' in active_strategies:
+            breakout_signal = self.breakout_strategies.donchian_breakout(
+                features, regime, horizon, meta_signals.get('meta_signal', 0.5)
+            )
+            signals.append(breakout_signal)
+
+        if 'range_breakout' in active_strategies:
+            breakout_signal = self.breakout_strategies.range_breakout(
+                features, regime, horizon, meta_signals.get('meta_signal', 0.5)
+            )
+            signals.append(breakout_signal)
+
+        if 'atr_breakout' in active_strategies:
+            breakout_signal = self.breakout_strategies.atr_breakout(
+                features, regime, horizon, meta_signals.get('meta_signal', 0.5)
+            )
+            signals.append(breakout_signal)
+
+        if 'momentum_surge' in active_strategies:
+            breakout_signal = self.breakout_strategies.momentum_surge(
+                features, regime, horizon, meta_signals.get('meta_signal', 0.5)
+            )
+            signals.append(breakout_signal)
 
         # Get correlation data (simplified)
         corr_data = {
