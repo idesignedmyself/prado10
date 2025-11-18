@@ -126,8 +126,8 @@ def train(
             # Fix yfinance MultiIndex columns (sometimes returns tuples)
             cols = data.columns
             if isinstance(cols[0], tuple):
-                # Flatten multiindex: ('Close', 'QQQ') -> 'close_qqq'
-                data.columns = ["_".join(str(c) for c in col).lower() for col in cols]
+                # Flatten multiindex: ('Close', 'QQQ') -> 'close' (take first element only)
+                data.columns = [str(col[0]).lower() for col in cols]
             else:
                 # Normal columns: 'Close' -> 'close'
                 data.columns = [str(col).lower() for col in cols]
@@ -315,8 +315,8 @@ def backtest(
         # Fix yfinance MultiIndex columns (sometimes returns tuples)
         cols = data.columns
         if isinstance(cols[0], tuple):
-            # Flatten multiindex: ('Close', 'QQQ') -> 'close_qqq'
-            data.columns = ["_".join(str(c) for c in col).lower() for col in cols]
+            # Flatten multiindex: ('Close', 'QQQ') -> 'close' (take first element only)
+            data.columns = [str(col[0]).lower() for col in cols]
         else:
             # Normal columns: 'Close' -> 'close'
             data.columns = [str(col).lower() for col in cols]
@@ -646,8 +646,8 @@ def predict(
 # OPTIMIZE COMMAND - MODULE K: AUTOTUNER
 # ============================================================================
 
-@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
-def optimize_cmd(ctx: typer.Context):
+@app.command("optimize")
+def optimize_cli(symbol: str):
     """
     Run AutoTuner hyperparameter optimization.
 
@@ -657,16 +657,7 @@ def optimize_cmd(ctx: typer.Context):
     Example:
         prado optimize QQQ
     """
-    args = ctx.args
-
-    if len(args) < 1:
-        console.print("[red]Error:[/red] Symbol required")
-        console.print("\nUsage: prado optimize SYMBOL")
-        console.print("Example: prado optimize QQQ")
-        raise typer.Exit(code=1)
-
-    symbol = args[0].upper()
-    optimize(symbol)
+    return optimize(symbol)
 
 
 # ============================================================================

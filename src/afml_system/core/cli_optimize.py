@@ -50,7 +50,8 @@ def optimize(symbol: str):
         # Fix yfinance MultiIndex columns
         cols = df.columns
         if isinstance(cols[0], tuple):
-            df.columns = ["_".join(str(c) for c in col).lower() for col in cols]
+            # Flatten multiindex: ('Close', 'QQQ') -> 'close' (take first element only)
+            df.columns = [str(col[0]).lower() for col in cols]
         else:
             df.columns = [str(col).lower() for col in cols]
 
