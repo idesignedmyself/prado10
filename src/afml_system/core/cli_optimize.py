@@ -41,7 +41,17 @@ def optimize(symbol: str):
     ) as progress:
         task = progress.add_task(f"Fetching {symbol} data...", total=None)
 
-        df = yf.download(symbol, progress=False)
+        # Default to 5 years of data for optimization
+        from datetime import datetime, timedelta
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=5*365)
+
+        df = yf.download(
+            symbol,
+            start=start_date.strftime('%Y-%m-%d'),
+            end=end_date.strftime('%Y-%m-%d'),
+            progress=False
+        )
 
         if df.empty:
             console.print(f"[red]Error:[/red] No data retrieved for {symbol}")
@@ -74,6 +84,11 @@ def optimize(symbol: str):
         result = tuner.run(df)
 
         progress.update(task, completed=True)
+
+    # Check for errors
+    if result.get("status") == "error":
+        console.print(f"[red]✗ Optimization failed:[/red] {result.get('message', 'Unknown error')}")
+        raise typer.Exit(code=1)
 
     console.print(f"[green]✓[/green] Optimization complete")
 

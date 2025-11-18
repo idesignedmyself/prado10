@@ -95,15 +95,31 @@ class AutoTuner:
         os.makedirs(self.config_dir, exist_ok=True)
 
     def run(self, df: pd.DataFrame) -> Dict:
+        # Check minimum data requirement
+        if len(df) < 300:
+            return {
+                "status": "error",
+                "message": f"Insufficient data for tuning: {len(df)} bars (need ≥300)"
+            }
+
+        # Get CPCV splits
+        splits = cpcv_splits(df, k=4)
+
+        if len(splits) == 0:
+            return {
+                "status": "error",
+                "message": "No CPCV splits could be created (dataset too small)"
+            }
+
         best_score = -9999
         best_params = None
         best_result = None
 
         params_list = self._generate_param_grid()
-        splits = cpcv_splits(df)
 
         for params in params_list:
             avg_score = 0
+            result = None
 
             for train_df, val_df in splits:
                 config = BacktestConfig(
@@ -117,6 +133,11 @@ class AutoTuner:
                 )
 
                 res_dict = evo_backtest_standard(self.symbol, train_df, config)
+
+                # Handle errors from backtest
+                if res_dict.get("status") != "success":
+                    continue
+
                 result = res_dict["result"]
                 fold_score = score_config(result)
                 avg_score += fold_score
@@ -126,11 +147,20 @@ class AutoTuner:
             if avg_score > best_score:
                 best_score = avg_score
                 best_params = params
-                best_result = result
+                if result is not None:
+                    best_result = result
+
+        # Check if we found valid parameters
+        if best_params is None:
+            return {
+                "status": "error",
+                "message": "No parameter combination produced valid results"
+            }
 
         self._save_config(best_params)
 
         return {
+            "status": "success",
             "symbol": self.symbol,
             "best_params": best_params,
             "best_score": best_score,
