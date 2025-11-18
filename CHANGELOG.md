@@ -4,7 +4,7 @@
 
 PRADO9_EVO is an advanced quantitative trading system combining Advances in Financial Machine Learning (AFML) with evolutionary algorithms for adaptive, regime-aware strategy selection.
 
-**Current Version:** 2.1.1
+**Current Version:** 2.2.0
 **Status:** Production-ready
 **Last Updated:** 2025-01-18
 
@@ -32,8 +32,9 @@ PRADO9_EVO is an advanced quantitative trading system combining Advances in Fina
 - **Module V:** Volatility Strategy Engine - 5 volatility-based strategies
 - **Module B2:** Trend Breakout Engine - 4 breakout strategies
 
-### Risk Management Modules (X)
+### Risk Management Modules (X, Y)
 - **Module X:** ATR Volatility Targeting - Institutional-grade position sizing
+- **Module Y:** Position Scaling Engine - Confidence-based exposure management
 
 ---
 
@@ -102,6 +103,57 @@ Regime Coverage: Full coverage across all 5 regimes
 ---
 
 ## Detailed Changelog
+
+### [2.2.0] - 2025-01-18 - Module Y: Position Scaling Engine
+
+**Added:**
+- `src/afml_system/risk/position_scaler.py` - Confidence-based position scaling (328 lines)
+- `tests/test_position_scaler.py` - 11 comprehensive validation tests
+- Updated `src/afml_system/risk/__init__.py` - Export PositionScaler and ScalingFactors
+
+**Features:**
+- Meta-learner confidence scaling (0% → 0.5x, 50% → 1.0x, 100% → 1.5x)
+- Bandit exploration/exploitation scaling (exploration → 0.2x min, exploitation → 1.0x)
+- Regime-based aggression (TRENDING=1.4x, HIGH_VOL=0.7x, LOW_VOL=1.2x, NORMAL=1.0x)
+- Correlation penalty adjustment (diversification optimization)
+- Pyramiding logic (add to winners, reduce losers)
+- Position capping for safety (±3.0x max)
+- Vectorized batch scaling for backtest performance
+- ScalingFactors breakdown for debugging
+
+**Modified:**
+- `src/afml_system/backtest/backtest_engine.py` - Integrated position scaler
+  - Import PositionScaler at line 45-46
+  - Configuration parameters at lines 93-96
+  - Initialization at lines 211-219
+  - Position scaling applied BEFORE Module X ATR targeting (lines 750-764)
+  - Scaling pipeline: Allocator → Module Y (confidence) → Module X (volatility) → Execution
+
+**Validated:**
+- ✅ Meta-learner confidence scaling (0.0-1.0 → 0.5x-1.5x)
+- ✅ Bandit exploration/exploitation scaling
+- ✅ Regime-based aggression adjustments
+- ✅ Combined scaling pipeline (all factors multiply correctly)
+- ✅ Position capping at ±3.0x safety limits
+- ✅ Pyramiding logic (winners up, losers down)
+- ✅ Correlation penalty reduces position size
+- ✅ Deterministic behavior (100% reproducibility)
+- ✅ ScalingFactors transparency
+- ✅ Batch scaling performance
+- ✅ Regime + volatility combined adjustment
+- ✅ 11/11 tests passed (100%)
+
+**Impact:**
+- Professional-grade exposure management
+- Confidence-based position adjustments (pyramid winners, shrink losers)
+- Regime-aware aggression (aggressive in trends, conservative in high vol)
+- Exploration/exploitation balance (reduce during exploration)
+- Foundation for correlation-based portfolio optimization
+- Expected higher risk-adjusted returns through intelligent sizing
+
+**Status:** Production-ready with comprehensive test coverage
+
+---
 
 ### [2.1.1] - 2025-01-18 - SWEEP X.1: Volatility Target Determinism Test
 

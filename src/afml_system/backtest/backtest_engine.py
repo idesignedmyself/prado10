@@ -42,7 +42,8 @@ from ..volatility import VolatilityStrategies
 from ..trend import BreakoutStrategies
 
 # Module X - ATR Volatility Targeting
-from ..risk import ATRVolTarget
+# Module Y - Position Scaling Engine
+from ..risk import ATRVolTarget, PositionScaler
 
 
 # ============================================================================
@@ -88,6 +89,11 @@ class BacktestConfig:
     target_vol: float = 0.12  # 12% annualized target volatility
     atr_period: int = 14
     atr_max_leverage: float = 3.0
+
+    # Module Y - Position Scaling parameters
+    use_position_scaling: bool = True
+    meta_confidence_range: tuple = (0.5, 1.5)  # (min, max) confidence scaling
+    bandit_min_scale: float = 0.2  # Minimum scale during exploration
 
     # Random seed for determinism
     random_seed: int = 42
@@ -201,6 +207,16 @@ class BacktestEngine:
             )
         else:
             self.atr_vol_target = None
+
+        # Module Y - Position Scaling Engine
+        if self.config.use_position_scaling:
+            self.position_scaler = PositionScaler(
+                meta_confidence_range=self.config.meta_confidence_range,
+                bandit_min_scale=self.config.bandit_min_scale,
+                max_position=self.config.atr_max_leverage  # Share max with ATR
+            )
+        else:
+            self.position_scaler = None
 
     def _validate_and_clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -731,8 +747,23 @@ class BacktestEngine:
             for strat_id, weight in allocation.strategy_weights.items():
                 strategy_allocations[strat_id] = strategy_allocations.get(strat_id, 0.0) + weight
 
-            # Module X: Apply ATR volatility targeting to final position
+            # Module Y: Apply confidence-based position scaling FIRST
             final_position = allocation.final_position
+            if self.position_scaler is not None:
+                # Extract scaling parameters from signals
+                meta_prob = meta_signals.get('meta_signal', 0.5)
+                bandit_weight = allocation.details.get('bandit_weight', 1.0)
+                # Note: correlation_penalty could come from allocation.correlation_penalty if available
+
+                final_position = self.position_scaler.scale(
+                    position=allocation.final_position,
+                    meta_prob=meta_prob,
+                    bandit_weight=bandit_weight,
+                    regime=regime,
+                    correlation_penalty=0.0  # Could be enhanced with actual correlation data
+                )
+
+            # Module X: Apply ATR volatility targeting AFTER confidence scaling
             if self.atr_vol_target is not None:
                 atr = features.get('atr', None)
                 if atr is not None:
