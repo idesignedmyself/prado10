@@ -41,6 +41,9 @@ from ..volatility import VolatilityStrategies
 # Module B2 - Trend Breakout Engine
 from ..trend import BreakoutStrategies
 
+# Module X - ATR Volatility Targeting
+from ..risk import ATRVolTarget
+
 
 # ============================================================================
 # CONSTANTS
@@ -79,6 +82,12 @@ class BacktestConfig:
 
     # Meta-learner parameters
     regime_lookback: int = 60
+
+    # Module X - ATR Volatility Targeting parameters
+    use_atr_targeting: bool = True
+    target_vol: float = 0.12  # 12% annualized target volatility
+    atr_period: int = 14
+    atr_max_leverage: float = 3.0
 
     # Random seed for determinism
     random_seed: int = 42
@@ -182,6 +191,16 @@ class BacktestEngine:
 
         # Module B2 - Trend Breakout Engine
         self.breakout_strategies = BreakoutStrategies()
+
+        # Module X - ATR Volatility Targeting
+        if self.config.use_atr_targeting:
+            self.atr_vol_target = ATRVolTarget(
+                target_vol=self.config.target_vol,
+                atr_period=self.config.atr_period,
+                max_leverage=self.config.atr_max_leverage
+            )
+        else:
+            self.atr_vol_target = None
 
     def _validate_and_clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -422,12 +441,32 @@ class BacktestEngine:
         mean_price = np.mean(prices)
         mean_reversion = (prices[-1] - mean_price) / mean_price if mean_price > EPSILON else 0.0
 
-        return {
+        # Module X: Calculate ATR for volatility targeting
+        atr = None
+        if self.atr_vol_target is not None:
+            try:
+                # Calculate ATR using full DataFrame up to current index
+                atr_df = df.iloc[max(0, event_idx - self.config.atr_period * 2):event_idx+1]
+                if len(atr_df) >= 2:
+                    atr_series = self.atr_vol_target.compute_atr(atr_df)
+                    if len(atr_series) > 0:
+                        atr = float(atr_series.iloc[-1])
+            except Exception:
+                # ATR calculation failed, will use None (no scaling)
+                pass
+
+        features_dict = {
             'momentum': float(momentum),
             'volatility': float(volatility),
             'rsi': float(rsi),
             'mean_reversion': float(mean_reversion)
         }
+
+        # Add ATR if available
+        if atr is not None:
+            features_dict['atr'] = atr
+
+        return features_dict
 
     def _detect_regime(self, df: pd.DataFrame, event_idx: int) -> str:
         """
@@ -692,11 +731,22 @@ class BacktestEngine:
             for strat_id, weight in allocation.strategy_weights.items():
                 strategy_allocations[strat_id] = strategy_allocations.get(strat_id, 0.0) + weight
 
+            # Module X: Apply ATR volatility targeting to final position
+            final_position = allocation.final_position
+            if self.atr_vol_target is not None:
+                atr = features.get('atr', None)
+                if atr is not None:
+                    final_position = self.atr_vol_target.scale_position(
+                        raw_position=allocation.final_position,
+                        atr=atr,
+                        close_price=price
+                    )
+
             # Create trade intent
             trade_intent = TradeIntent(
                 timestamp=timestamp,
                 symbol=symbol,
-                target_position=allocation.final_position,
+                target_position=final_position,
                 allocator_details=allocation.details
             )
 

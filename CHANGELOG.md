@@ -4,7 +4,7 @@
 
 PRADO9_EVO is an advanced quantitative trading system combining Advances in Financial Machine Learning (AFML) with evolutionary algorithms for adaptive, regime-aware strategy selection.
 
-**Current Version:** 2.0.1
+**Current Version:** 2.1.0
 **Status:** Production-ready
 **Last Updated:** 2025-01-18
 
@@ -31,6 +31,9 @@ PRADO9_EVO is an advanced quantitative trading system combining Advances in Fina
 - **Module R:** Regime Selector - Market regime-based strategy switching
 - **Module V:** Volatility Strategy Engine - 5 volatility-based strategies
 - **Module B2:** Trend Breakout Engine - 4 breakout strategies
+
+### Risk Management Modules (X)
+- **Module X:** ATR Volatility Targeting - Institutional-grade position sizing
 
 ---
 
@@ -99,6 +102,47 @@ Regime Coverage: Full coverage across all 5 regimes
 ---
 
 ## Detailed Changelog
+
+### [2.1.0] - 2025-01-18 - Module X: ATR Volatility Targeting
+
+**Added:**
+- `src/afml_system/risk/__init__.py` - Risk management module initialization
+- `src/afml_system/risk/atr_target.py` - ATR volatility targeting implementation
+- `tests/test_atr_volatility_targeting.py` - 8 comprehensive validation tests
+
+**Features:**
+- ATR-based volatility estimation (14-period default)
+- Position scaling to target volatility (12% default)
+- Leverage capping for safety (3x max default)
+- Vectorized scaling for backtesting performance
+- Handles missing/invalid data gracefully
+
+**Modified:**
+- `src/afml_system/backtest/backtest_engine.py` - Integrated ATR targeting
+  - Added ATR calculation in _build_features()
+  - Apply volatility scaling to final positions
+  - Optional enable/disable via use_atr_targeting config
+
+**Validated:**
+- ✅ ATR calculation correctness
+- ✅ Position scaling logic (inverse to volatility)
+- ✅ Leverage capping at 3x maximum
+- ✅ Edge case handling (NaN, zero, negative)
+- ✅ ATR percentage calculation
+- ✅ Vectorized scaling performance
+- ✅ Current leverage monitoring
+- ✅ Minimum volatility threshold protection
+- ✅ 8/8 tests passed (100%)
+
+**Impact:**
+- Institutional-grade risk management
+- More stable returns across regimes
+- Expected higher Sharpe ratios through volatility normalization
+- Automatic leverage reduction during volatile periods
+
+**Status:** Production-ready with comprehensive test coverage
+
+---
 
 ### [2.0.1] - 2025-01-18 - SWEEP B2.1: Breakout Signal Stability Test
 
