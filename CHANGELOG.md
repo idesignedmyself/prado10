@@ -4,7 +4,7 @@
 
 PRADO9_EVO is an advanced quantitative trading system combining Advances in Financial Machine Learning (AFML) with evolutionary algorithms for adaptive, regime-aware strategy selection.
 
-**Current Version:** 2.0.0
+**Current Version:** 2.0.1
 **Status:** Production-ready
 **Last Updated:** 2025-01-18
 
@@ -99,6 +99,27 @@ Regime Coverage: Full coverage across all 5 regimes
 ---
 
 ## Detailed Changelog
+
+### [2.0.1] - 2025-01-18 - SWEEP B2.1: Breakout Signal Stability Test
+
+**Added:**
+- `tests/test_breakout_strategies.py` - 7 comprehensive validation tests
+- `SWEEP_B2_1_COMPLETE.md` - Full validation documentation
+
+**Validated:**
+- ✅ All 4 breakout strategies generate correct signals
+- ✅ Donchian breakout behaves correctly in trending markets
+- ✅ Range breakout handles compression → expansion transitions
+- ✅ ATR breakout detects significant volatility moves
+- ✅ Momentum surge identifies acceleration correctly
+- ✅ Deterministic behavior confirmed (5 runs per strategy)
+- ✅ Regime-based activation working (Module R integration)
+- ✅ Probability and uniqueness scores validated
+- ✅ 7/7 tests passed (100%)
+
+**Status:** Module B2 production-ready with comprehensive test coverage
+
+---
 
 ### [2.0.0] - 2025-01-18 - Module B2: Trend Breakout Engine
 
