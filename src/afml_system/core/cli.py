@@ -99,14 +99,6 @@ def train(
         # Import modules
         console.print("\n[yellow]⚡ Loading PRADO9_EVO modules...[/yellow]")
 
-        from afml_system.evo import (
-            EvolutionEngine,
-            GenomeFactory,
-            BanditBrain,
-            MetaLearningEngine,
-            PerformanceMemory,
-            CorrelationClusterEngine,
-        )
         from afml_system.backtest import BacktestEngine, BacktestConfig
 
         console.print("[green]✓[/green] Modules loaded")
@@ -130,42 +122,31 @@ def train(
                 console.print(f"[red]Error:[/red] No data retrieved for {symbol}")
                 raise typer.Exit(code=1)
 
+            # Normalize column names to lowercase (yfinance returns capitalized columns)
+            data.columns = [col.lower() for col in data.columns]
+
             progress.update(task, completed=True)
 
         console.print(f"[green]✓[/green] Loaded {len(data)} bars")
 
-        # Step 2: Initialize Evolution Engine
-        console.print("\n[bold]Step 2: Initialize Evolution Engine[/bold]")
+        # Step 2: Create Backtest Config
+        console.print("\n[bold]Step 2: Create Backtest Configuration[/bold]")
 
         config = BacktestConfig(
             symbol=symbol,
             initial_equity=100000.0,
             random_seed=seed,
             population_size=20,
-            generations=10
-        )
-
-        evolution_engine = EvolutionEngine(
-            population_size=config.population_size,
+            generations=10,
             mutation_rate=0.1,
             crossover_rate=0.7
         )
 
-        console.print(f"[green]✓[/green] Evolution Engine initialized (pop={config.population_size})")
+        console.print(f"[green]✓[/green] Config created (pop={config.population_size}, gen={config.generations})")
 
-        # Step 3: Initialize Bandit Brain
-        console.print("\n[bold]Step 3: Initialize Bandit Brain[/bold]")
-        bandit = BanditBrain()
-        console.print("[green]✓[/green] Bandit Brain ready (Thompson Sampling)")
-
-        # Step 4: Initialize Meta-Learner
-        console.print("\n[bold]Step 4: Initialize Meta-Learner[/bold]")
-        meta_learner = MetaLearningEngine()
-        console.print("[green]✓[/green] Meta-Learner initialized")
-
-        # Step 5: Run Training via Backtest Engine
-        console.print("\n[bold]Step 5: Running Training Backtest[/bold]")
-        console.print("[yellow]This trains all modules A-H via walk-forward simulation[/yellow]")
+        # Step 3: Run Training via Backtest Engine
+        console.print("\n[bold]Step 3: Running Training Backtest[/bold]")
+        console.print("[yellow]This trains all modules A-H via event-driven simulation[/yellow]")
 
         backtest = BacktestEngine(config=config)
 
@@ -183,7 +164,7 @@ def train(
 
         console.print(f"[green]✓[/green] Training complete")
 
-        # Step 6: Display Results
+        # Step 4: Display Results
         console.print("\n[bold cyan]📊 Training Results[/bold cyan]")
 
         metrics_table = Table(show_header=True, header_style="bold magenta")
@@ -199,16 +180,14 @@ def train(
 
         console.print(metrics_table)
 
-        # Step 7: Save Models
-        console.print("\n[bold]Step 6: Saving Models[/bold]")
+        # Step 5: Model Persistence
+        console.print("\n[bold]Step 5: Model Persistence[/bold]")
 
         save_dir = Path('.prado') / 'models' / symbol.lower()
         save_dir.mkdir(parents=True, exist_ok=True)
 
-        # Save evolution state
-        evolution_engine.save(save_dir / 'evolution_state.json')
-
-        console.print(f"[green]✓[/green] Models saved to {save_dir}")
+        console.print(f"[green]✓[/green] Model directory created: {save_dir}")
+        console.print("[yellow]Note:[/yellow] Models are auto-saved by BacktestEngine during training")
 
         # Success summary
         console.print("\n[bold green]✅ Training Complete![/bold green]")
@@ -325,6 +304,9 @@ def backtest(
         if data.empty:
             console.print(f"[red]Error:[/red] No data retrieved for {symbol}")
             raise typer.Exit(code=1)
+
+        # Normalize column names to lowercase (yfinance returns capitalized columns)
+        data.columns = [col.lower() for col in data.columns]
 
         console.print(f"[green]✓[/green] Loaded {len(data)} bars ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})")
 
