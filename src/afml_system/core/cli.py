@@ -20,6 +20,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich import print as rprint
 
 from .date_parser import parse_date_args, validate_date_range
+from .cli_optimize import optimize
 
 # Create Typer app
 app = typer.Typer(
@@ -642,6 +643,33 @@ def predict(
 
 
 # ============================================================================
+# OPTIMIZE COMMAND - MODULE K: AUTOTUNER
+# ============================================================================
+
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def optimize_cmd(ctx: typer.Context):
+    """
+    Run AutoTuner hyperparameter optimization.
+
+    Usage:
+        prado optimize SYMBOL
+
+    Example:
+        prado optimize QQQ
+    """
+    args = ctx.args
+
+    if len(args) < 1:
+        console.print("[red]Error:[/red] Symbol required")
+        console.print("\nUsage: prado optimize SYMBOL")
+        console.print("Example: prado optimize QQQ")
+        raise typer.Exit(code=1)
+
+    symbol = args[0].upper()
+    optimize(symbol)
+
+
+# ============================================================================
 # HELP COMMAND
 # ============================================================================
 
@@ -658,6 +686,11 @@ def help():
     table.add_column("Description", style="green", width=50)
     table.add_column("Example", style="yellow", width=40)
 
+    table.add_row(
+        "optimize",
+        "Optimize hyperparameters (AutoTuner)",
+        "prado optimize QQQ"
+    )
     table.add_row(
         "train",
         "Train models on historical data",
