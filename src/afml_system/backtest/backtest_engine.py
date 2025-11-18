@@ -32,6 +32,9 @@ from ..evo import (
 # Module H - Execution Engine
 from ..execution import TradeIntent, PortfolioState, evo_execute
 
+# Module R - Regime Strategy Selector
+from ..regime import RegimeStrategySelector
+
 
 # ============================================================================
 # CONSTANTS
@@ -164,6 +167,9 @@ class BacktestEngine:
 
         # Module F - Correlation Engine
         self.corr_engine = CorrelationClusterEngine()
+
+        # Module R - Regime Strategy Selector
+        self.regime_selector = RegimeStrategySelector()
 
     def _validate_and_clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -774,6 +780,9 @@ class BacktestEngine:
         """
         Get allocation decision from evolutionary allocator.
 
+        Uses Module R (RegimeStrategySelector) to dynamically select
+        which strategies should be active based on current market regime.
+
         Args:
             features: Feature dictionary
             regime: Current regime
@@ -783,40 +792,59 @@ class BacktestEngine:
         Returns:
             AllocationDecision dataclass
         """
+        # Module R: Get active strategies for current regime
+        active_strategies = self.regime_selector.select(regime)
+
         # Build StrategySignal objects for allocator
         signals = []
 
-        # Momentum strategy signal
-        momentum_signal = StrategySignal(
-            strategy_name='momentum',
-            regime=regime,
-            horizon=horizon,
-            side=1 if features.get('momentum', 0.0) > 0 else -1,
-            probability=0.6,
-            meta_probability=meta_signals.get('meta_signal', 0.5),
-            forecast_return=features.get('momentum', 0.0) * 0.01,
-            volatility_forecast=features.get('volatility', 0.15),
-            bandit_weight=0.5,
-            uniqueness=0.7,
-            correlation_penalty=0.1
-        )
-        signals.append(momentum_signal)
+        # Momentum strategy signal (if active in current regime)
+        if 'momentum' in active_strategies:
+            momentum_signal = StrategySignal(
+                strategy_name='momentum',
+                regime=regime,
+                horizon=horizon,
+                side=1 if features.get('momentum', 0.0) > 0 else -1,
+                probability=0.6,
+                meta_probability=meta_signals.get('meta_signal', 0.5),
+                forecast_return=features.get('momentum', 0.0) * 0.01,
+                volatility_forecast=features.get('volatility', 0.15),
+                bandit_weight=0.5,
+                uniqueness=0.7,
+                correlation_penalty=0.1
+            )
+            signals.append(momentum_signal)
 
-        # Mean reversion strategy signal
-        mr_signal = StrategySignal(
-            strategy_name='mean_reversion',
-            regime=regime,
-            horizon=horizon,
-            side=-1 if features.get('mean_reversion', 0.0) < 0 else 1,
-            probability=0.55,
-            meta_probability=meta_signals.get('meta_signal', 0.5),
-            forecast_return=features.get('mean_reversion', 0.0) * 0.01,
-            volatility_forecast=features.get('volatility', 0.15),
-            bandit_weight=0.5,
-            uniqueness=0.6,
-            correlation_penalty=0.15
-        )
-        signals.append(mr_signal)
+        # Mean reversion strategy signal (if active in current regime)
+        if 'mean_reversion' in active_strategies:
+            mr_signal = StrategySignal(
+                strategy_name='mean_reversion',
+                regime=regime,
+                horizon=horizon,
+                side=-1 if features.get('mean_reversion', 0.0) < 0 else 1,
+                probability=0.55,
+                meta_probability=meta_signals.get('meta_signal', 0.5),
+                forecast_return=features.get('mean_reversion', 0.0) * 0.01,
+                volatility_forecast=features.get('volatility', 0.15),
+                bandit_weight=0.5,
+                uniqueness=0.6,
+                correlation_penalty=0.15
+            )
+            signals.append(mr_signal)
+
+        # Future volatility strategies (placeholders for Module S)
+        # These will be implemented when volatility-based strategies are added
+        # if 'vol_breakout' in active_strategies and hasattr(self, 'vol_breakout'):
+        #     signals.append(self._get_vol_breakout_signal(features, regime, horizon, meta_signals))
+        #
+        # if 'vol_compression' in active_strategies and hasattr(self, 'vol_compression'):
+        #     signals.append(self._get_vol_compression_signal(features, regime, horizon, meta_signals))
+        #
+        # if 'vol_spike_fade' in active_strategies and hasattr(self, 'vol_spike_fade'):
+        #     signals.append(self._get_vol_spike_fade_signal(features, regime, horizon, meta_signals))
+        #
+        # if 'trend_breakout' in active_strategies and hasattr(self, 'trend_breakout'):
+        #     signals.append(self._get_trend_breakout_signal(features, regime, horizon, meta_signals))
 
         # Get correlation data (simplified)
         corr_data = {
