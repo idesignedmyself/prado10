@@ -281,6 +281,34 @@ class LiveSignalEngine:
         """
         self.strategies[name] = strategy_func
 
+    def generate_signal(
+        self,
+        symbol: str,
+        result: Any,
+        horizon: str = '5d'
+    ) -> LiveSignalResult:
+        """
+        Generate signal from data fetch result (CLI compatibility method).
+
+        Args:
+            symbol: Trading symbol
+            result: Result from data_feed with 'data' DataFrame
+            horizon: Time horizon
+
+        Returns:
+            LiveSignalResult with full intelligence cascade
+        """
+        # Extract DataFrame from result
+        if hasattr(result, 'data'):
+            df = result.data
+        elif isinstance(result, pd.DataFrame):
+            df = result
+        else:
+            df = pd.DataFrame()
+
+        # Call main generate method
+        return self.generate(df, symbol, horizon)
+
     def generate(
         self,
         df: pd.DataFrame,

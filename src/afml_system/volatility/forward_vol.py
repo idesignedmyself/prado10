@@ -19,6 +19,18 @@ import pandas as pd
 from typing import Optional, Union
 import warnings
 
+# Try to import arch for GARCH(1,1)
+try:
+    from arch import arch_model
+    ARCH_AVAILABLE = True
+except ImportError:
+    ARCH_AVAILABLE = False
+    warnings.warn(
+        "arch package not available. GARCH forecasting will use simplified implementation. "
+        "Install with: pip install arch",
+        UserWarning
+    )
+
 
 def realized_volatility(
     returns: Union[pd.Series, np.ndarray],
@@ -71,6 +83,112 @@ def realized_volatility(
     realized_vol = max(0.05, min(2.00, realized_vol))
 
     return float(realized_vol)
+
+
+def ewma_vol_forecast(
+    returns: Union[pd.Series, np.ndarray],
+    window: int = 21,
+    annualization_factor: int = 252
+) -> float:
+    """
+    PATCH 3: EWMA-21 volatility forecast (fallback method 1).
+
+    Exponentially Weighted Moving Average volatility estimate.
+    This is more responsive than simple rolling std but more stable than GARCH.
+
+    Args:
+        returns: Historical returns
+        window: EWMA window (default: 21 days)
+        annualization_factor: Annualization factor (default: 252)
+
+    Returns:
+        EWMA volatility forecast
+
+    Example:
+        >>> returns = pd.Series([0.01, -0.02, 0.015])
+        >>> vol = ewma_vol_forecast(returns, window=21)
+        >>> print(f"EWMA vol: {vol:.2%}")
+    """
+    # Convert to pandas Series if numpy array
+    if isinstance(returns, np.ndarray):
+        returns = pd.Series(returns)
+
+    # Remove NaN values
+    returns = returns.dropna()
+
+    if len(returns) < 2:
+        return 0.015  # Default 1.5% if insufficient data
+
+    # Calculate EWMA standard deviation
+    ewm_std = returns.ewm(span=window, adjust=False).std().iloc[-1]
+
+    # Annualize
+    ewma_vol = ewm_std * np.sqrt(annualization_factor)
+
+    # Apply floor and cap
+    ewma_vol = max(0.005, min(2.00, ewma_vol))
+
+    return float(ewma_vol)
+
+
+def atr_vol_fallback(
+    df: pd.DataFrame,
+    window: int = 14,
+    annualization_factor: int = 252
+) -> float:
+    """
+    PATCH 3: ATR-14 volatility fallback (final fallback method).
+
+    Average True Range-based volatility estimate.
+    Most robust fallback that only requires OHLC data.
+
+    Args:
+        df: OHLCV DataFrame with 'high', 'low', 'close' columns
+        window: ATR window (default: 14 days)
+        annualization_factor: Annualization factor (default: 252)
+
+    Returns:
+        ATR-based volatility estimate
+
+    Example:
+        >>> df = pd.DataFrame({'high': [...], 'low': [...], 'close': [...]})
+        >>> vol = atr_vol_fallback(df, window=14)
+        >>> print(f"ATR vol: {vol:.2%}")
+    """
+    if len(df) < 2:
+        return 0.015  # Default 1.5% if insufficient data
+
+    # Ensure we have required columns
+    required_cols = ['high', 'low', 'close']
+    if not all(col in df.columns for col in required_cols):
+        return 0.015  # Fallback to default
+
+    # Calculate True Range
+    # TR = max(high - low, abs(high - prev_close), abs(low - prev_close))
+    high_low = df['high'] - df['low']
+    high_prev_close = (df['high'] - df['close'].shift(1)).abs()
+    low_prev_close = (df['low'] - df['close'].shift(1)).abs()
+
+    true_range = pd.concat([high_low, high_prev_close, low_prev_close], axis=1).max(axis=1)
+
+    # Calculate ATR (simple moving average of TR)
+    atr = true_range.rolling(window=window, min_periods=1).mean().iloc[-1]
+
+    # Convert ATR to volatility estimate
+    # ATR is in price units, convert to percentage of price
+    current_price = df['close'].iloc[-1]
+    if current_price > 0:
+        atr_pct = atr / current_price
+    else:
+        return 0.015
+
+    # Annualize
+    atr_vol = atr_pct * np.sqrt(annualization_factor)
+
+    # Apply floor and cap
+    atr_vol = max(0.005, min(2.00, atr_vol))
+
+    return float(atr_vol)
 
 
 def regime_adjusted_vol(
@@ -238,6 +356,113 @@ def garch_vol_forecast(
             UserWarning
         )
         return realized_volatility(returns, window=fallback_window)
+
+
+def forward_vol_forecast(
+    df: pd.DataFrame,
+    use_arch_garch: bool = True,
+    min_vol_floor: float = 0.005,
+    annualization_factor: int = 252
+) -> float:
+    """
+    PATCH 3: Unified forward volatility forecast with cascading fallbacks.
+
+    Implements 3-tier fallback system:
+    1. GARCH(1,1) using arch package (if available and sufficient data)
+    2. EWMA-21 (if GARCH fails or unavailable)
+    3. ATR-14 (final fallback requiring only OHLC data)
+
+    All forecasts are clamped to minimum floor of 0.005 (0.5%).
+
+    Args:
+        df: OHLCV DataFrame with at minimum 'close' column (preferably also 'high', 'low')
+        use_arch_garch: Whether to attempt GARCH using arch package (default: True)
+        min_vol_floor: Minimum volatility floor (default: 0.005 = 0.5%)
+        annualization_factor: Annualization factor (default: 252)
+
+    Returns:
+        1-step ahead volatility forecast (annualized)
+
+    Example:
+        >>> df = pd.DataFrame({'close': [...], 'high': [...], 'low': [...]})
+        >>> vol_forecast = forward_vol_forecast(df)
+        >>> print(f"Vol forecast: {vol_forecast:.2%}")
+    """
+    # Calculate returns for GARCH and EWMA
+    returns = df['close'].pct_change().dropna()
+
+    # Tier 1: Try GARCH(1,1) using arch package
+    if use_arch_garch and ARCH_AVAILABLE and len(returns) >= 100:
+        try:
+            # Prepare returns (arch expects percentage returns scaled to 100)
+            returns_scaled = returns * 100
+
+            # Fit GARCH(1,1) model
+            # p=1 (ARCH order), q=1 (GARCH order)
+            model = arch_model(
+                returns_scaled,
+                vol='Garch',
+                p=1,
+                q=1,
+                mean='Zero',  # Zero mean (we only care about volatility)
+                rescale=False
+            )
+
+            # Fit model (suppress output)
+            fitted = model.fit(disp='off', show_warning=False)
+
+            # Forecast 1-step ahead variance
+            forecast = fitted.forecast(horizon=1, reindex=False)
+            forecast_var = forecast.variance.values[-1, 0]
+
+            # Convert back to decimal returns and annualize
+            # forecast_var is in (percentage)^2, so divide by 100^2
+            forecast_vol = np.sqrt(forecast_var / 10000) * np.sqrt(annualization_factor)
+
+            # Apply floor and cap
+            forecast_vol = max(min_vol_floor, min(2.00, forecast_vol))
+
+            return float(forecast_vol)
+
+        except Exception as e:
+            # GARCH failed, fall through to EWMA
+            warnings.warn(
+                f"GARCH (arch package) failed: {e}. Falling back to EWMA.",
+                UserWarning
+            )
+
+    # Tier 2: EWMA-21 fallback
+    try:
+        ewma_vol = ewma_vol_forecast(returns, window=21, annualization_factor=annualization_factor)
+
+        # Apply floor
+        ewma_vol = max(min_vol_floor, ewma_vol)
+
+        return float(ewma_vol)
+
+    except Exception as e:
+        # EWMA failed, fall through to ATR
+        warnings.warn(
+            f"EWMA fallback failed: {e}. Falling back to ATR.",
+            UserWarning
+        )
+
+    # Tier 3: ATR-14 final fallback
+    try:
+        atr_vol = atr_vol_fallback(df, window=14, annualization_factor=annualization_factor)
+
+        # Apply floor (already applied in atr_vol_fallback but double-check)
+        atr_vol = max(min_vol_floor, atr_vol)
+
+        return float(atr_vol)
+
+    except Exception as e:
+        # All methods failed, return conservative default
+        warnings.warn(
+            f"All volatility forecast methods failed: {e}. Using default 1.5%.",
+            UserWarning
+        )
+        return max(min_vol_floor, 0.015)
 
 
 def forward_volatility_estimate(

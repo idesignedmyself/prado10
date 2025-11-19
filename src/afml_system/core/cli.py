@@ -727,39 +727,65 @@ def predict(
         regime_table.add_column("Value", style="green")
 
         regime_table.add_row("Regime", signal_result.regime)
-        regime_table.add_row("Volatility", f"{signal_result.volatility:.4f}")
-        regime_table.add_row("Trend Strength", f"{signal_result.trend_strength:.4f}")
+
+        # Get volatility from metadata
+        volatility = signal_result.metadata.get('volatility', 0.15)
+        regime_table.add_row("Volatility", f"{volatility:.4f}")
+
+        # Calculate trend strength from features if available
+        trend_strength = 0.0
+        if signal_result.features is not None and not signal_result.features.empty:
+            if 'trend' in signal_result.features.columns:
+                trend_strength = signal_result.features.iloc[-1].get('trend', 0.0)
+        regime_table.add_row("Trend Strength", f"{trend_strength:.4f}")
 
         console.print("\n[bold]Market Regime:[/bold]")
         console.print(regime_table)
 
         # Strategy signals
-        if signal_result.strategy_signals:
+        if signal_result.signals_raw:
             console.print("\n[bold]Strategy Signals:[/bold]")
 
             signal_table = Table(show_header=True, header_style="bold magenta")
             signal_table.add_column("Strategy", style="cyan")
-            signal_table.add_column("Signal", style="green", justify="right")
-            signal_table.add_column("Confidence", style="yellow", justify="right")
+            signal_table.add_column("Side", style="green", justify="right")
+            signal_table.add_column("Probability", style="yellow", justify="right")
+            signal_table.add_column("Forecast Return", style="blue", justify="right")
 
-            for strat_name, strat_result in signal_result.strategy_signals.items():
-                signal_str = f"{strat_result.signal:+.3f}"
-                conf_str = f"{strat_result.confidence:.2%}"
-                signal_table.add_row(strat_name, signal_str, conf_str)
+            for strat_result in signal_result.signals_raw:
+                side_str = "LONG" if strat_result.side > 0 else "SHORT" if strat_result.side < 0 else "NEUTRAL"
+                prob_str = f"{strat_result.probability:.2%}"
+                ret_str = f"{strat_result.forecast_return:+.2%}"
+                signal_table.add_row(strat_result.strategy_name, side_str, prob_str, ret_str)
 
             console.print(signal_table)
 
+        # Calculate aggregated signal from strategy signals
+        aggregated_signal = 0.0
+        if signal_result.signals_raw:
+            # Weighted average of signals by probability
+            total_weight = 0.0
+            weighted_sum = 0.0
+            for strat in signal_result.signals_raw:
+                weight = strat.probability
+                signal = strat.side * strat.probability  # -1, 0, +1 weighted by confidence
+                weighted_sum += signal * weight
+                total_weight += weight
+
+            if total_weight > 0:
+                aggregated_signal = weighted_sum / total_weight
+
         # Aggregated signal
-        console.print(f"\n[bold]Aggregated Signal:[/bold] {signal_result.aggregated_signal:+.3f}")
+        console.print(f"\n[bold]Aggregated Signal:[/bold] {aggregated_signal:+.3f}")
 
         # Recommendation
-        if signal_result.aggregated_signal > 0.3:
+        if aggregated_signal > 0.3:
             recommendation = "[green]LONG[/green] - Strong buy signal"
-        elif signal_result.aggregated_signal > 0.1:
+        elif aggregated_signal > 0.1:
             recommendation = "[green]LONG[/green] - Weak buy signal"
-        elif signal_result.aggregated_signal < -0.3:
+        elif aggregated_signal < -0.3:
             recommendation = "[red]SHORT[/red] - Strong sell signal"
-        elif signal_result.aggregated_signal < -0.1:
+        elif aggregated_signal < -0.1:
             recommendation = "[red]SHORT[/red] - Weak sell signal"
         else:
             recommendation = "[yellow]NEUTRAL[/yellow] - No clear signal"
