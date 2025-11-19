@@ -165,6 +165,11 @@ class PositionScaler:
         final_scale = position / (raw_position + 1e-10)  # Avoid division by zero
         scaled_position = float(np.clip(position, -self.max_position, self.max_position))
 
+        # PATCH 5: Absolute minimum position floor to prevent zeroing out
+        # This ensures signals result in actual trades
+        if abs(scaled_position) > 0 and abs(scaled_position) < 0.1:
+            scaled_position = 0.1 if scaled_position > 0 else -0.1
+
         if return_factors:
             return ScalingFactors(
                 meta_confidence_factor=meta_confidence_factor,

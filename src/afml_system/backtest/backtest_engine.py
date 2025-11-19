@@ -45,6 +45,9 @@ from ..trend import BreakoutStrategies
 # Module Y - Position Scaling Engine
 from ..risk import ATRVolTarget, PositionScaler
 
+# Module X2 - Forward-Looking Volatility Engine
+from ..volatility import ForwardVolatilityEngine
+
 
 # ============================================================================
 # CONSTANTS
@@ -94,6 +97,12 @@ class BacktestConfig:
     use_position_scaling: bool = True
     meta_confidence_range: tuple = (0.5, 1.5)  # (min, max) confidence scaling
     bandit_min_scale: float = 0.2  # Minimum scale during exploration
+
+    # Module X2 - Forward-Looking Volatility parameters
+    use_forward_vol: bool = False  # Use forward vol instead of ATR (experimental)
+    forward_vol_garch: bool = True  # Enable GARCH forecasting
+    forward_vol_garch_weight: float = 0.7  # Weight on GARCH vs realized vol
+    forward_vol_window: int = 21  # Window for realized volatility
 
     # Random seed for determinism
     random_seed: int = 42
@@ -217,6 +226,16 @@ class BacktestEngine:
             )
         else:
             self.position_scaler = None
+
+        # Module X2 - Forward-Looking Volatility Engine
+        if self.config.use_forward_vol:
+            self.forward_vol_engine = ForwardVolatilityEngine(
+                use_garch=self.config.forward_vol_garch,
+                garch_weight=self.config.forward_vol_garch_weight,
+                window=self.config.forward_vol_window
+            )
+        else:
+            self.forward_vol_engine = None
 
     def _validate_and_clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -471,6 +490,23 @@ class BacktestEngine:
                 # ATR calculation failed, will use None (no scaling)
                 pass
 
+        # Module X2: Calculate forward-looking volatility
+        forward_vol = None
+        if self.forward_vol_engine is not None:
+            try:
+                # Get returns up to current index
+                returns_df = df['close'].iloc[:event_idx+1].pct_change().dropna()
+                if len(returns_df) >= 30:  # Minimum for GARCH
+                    # Get current regime for adjustment
+                    regime = self.regime_selector.get_regime(volatility, momentum)
+                    forward_vol = self.forward_vol_engine.estimate(
+                        returns=returns_df,
+                        regime=regime
+                    )
+            except Exception:
+                # Forward vol calculation failed, will use None
+                pass
+
         features_dict = {
             'momentum': float(momentum),
             'volatility': float(volatility),
@@ -481,6 +517,10 @@ class BacktestEngine:
         # Add ATR if available
         if atr is not None:
             features_dict['atr'] = atr
+
+        # Add forward volatility if available
+        if forward_vol is not None:
+            features_dict['forward_vol'] = forward_vol
 
         return features_dict
 
@@ -763,12 +803,27 @@ class BacktestEngine:
                     correlation_penalty=0.0  # Could be enhanced with actual correlation data
                 )
 
-            # Module X: Apply ATR volatility targeting AFTER confidence scaling
-            if self.atr_vol_target is not None:
+            # Module X/X2: Apply volatility targeting AFTER confidence scaling
+            # Prioritize Module X2 (forward vol) if enabled, otherwise use Module X (ATR)
+            if self.forward_vol_engine is not None:
+                # Module X2: Use forward-looking volatility for position scaling
+                forward_vol = features.get('forward_vol', None)
+                if forward_vol is not None and self.atr_vol_target is not None:
+                    # Convert forward vol to equivalent ATR scaling
+                    # Forward vol is annualized, convert to "ATR-like" metric
+                    # Approximate: ATR ≈ price × (forward_vol / sqrt(252))
+                    estimated_atr = price * (forward_vol / np.sqrt(252))
+                    final_position = self.atr_vol_target.scale_position(
+                        raw_position=final_position,
+                        atr=estimated_atr,
+                        close_price=price
+                    )
+            elif self.atr_vol_target is not None:
+                # Module X: Use ATR-based volatility targeting
                 atr = features.get('atr', None)
                 if atr is not None:
                     final_position = self.atr_vol_target.scale_position(
-                        raw_position=allocation.final_position,
+                        raw_position=final_position,
                         atr=atr,
                         close_price=price
                     )
@@ -1333,18 +1388,21 @@ def evo_backtest_crisis(
     symbol: str,
     df: pd.DataFrame,
     crisis_periods: Optional[List[Dict]] = None,
-    config: Optional[BacktestConfig] = None
+    config: Optional[BacktestConfig] = None,
+    use_cr2: bool = True
 ) -> Dict[str, Any]:
     """
     Run crisis stress test backtest.
 
     Mini-Sweep I.1G: Hardened with sanitization and error handling.
+    Module CR2: Enhanced with multi-crisis detection and classification.
 
     Args:
         symbol: Trading symbol
         df: OHLCV DataFrame
         crisis_periods: List of crisis period definitions (optional)
         config: Backtest configuration (optional)
+        use_cr2: Use enhanced CR2 multi-crisis detector (default: True)
 
     Returns:
         Standardized result dictionary with status, symbol, error, result
@@ -1354,16 +1412,54 @@ def evo_backtest_crisis(
         symbol = _sanitize_symbol(symbol)
         df = _sanitize_dataframe(df)
 
-        from .crisis_stress import CrisisStressEngine
-
         if config is None:
             config = BacktestConfig(symbol=symbol)
 
-        crisis_engine = CrisisStressEngine(config=config)
-        results = crisis_engine.run(symbol=symbol, df=df, crisis_periods=crisis_periods)
+        # Module CR2: Use enhanced detector if enabled
+        if use_cr2 and crisis_periods is None:
+            from .crisis_stress_cr2 import MultiCrisisDetector
 
-        # Mini-Sweep I.1G: Return standardized success result
-        return _create_success_result(symbol, results)
+            # Detect and classify crises
+            detector = MultiCrisisDetector()
+            detected_crises = detector.detect_crises(df)
+
+            # Build results with crisis classification
+            results = {
+                'symbol': symbol,
+                'num_crises': len(detected_crises),
+                'crises': [],
+                'detector': 'CR2' if use_cr2 else 'Standard'
+            }
+
+            # Add crisis details
+            for crisis in detected_crises:
+                crisis_info = {
+                    'name': crisis.name,
+                    'type': crisis.crisis_type.value,
+                    'start_date': str(crisis.start_date),
+                    'end_date': str(crisis.end_date),
+                    'duration_days': crisis.duration_days,
+                    'max_drawdown': crisis.max_drawdown,
+                    'peak_volatility': crisis.peak_volatility,
+                    'vol_multiplier': crisis.vol_multiplier,
+                    'recovery_days': crisis.recovery_days,
+                    'match_confidence': crisis.match_confidence
+                }
+                results['crises'].append(crisis_info)
+
+            # Mini-Sweep I.1G: Return standardized success result
+            return _create_success_result(symbol, results)
+
+        else:
+            # Use original CrisisStressEngine
+            from .crisis_stress import CrisisStressEngine
+
+            crisis_engine = CrisisStressEngine(config=config)
+            results = crisis_engine.run(symbol=symbol, df=df, crisis_periods=crisis_periods)
+            results['detector'] = 'Standard'
+
+            # Mini-Sweep I.1G: Return standardized success result
+            return _create_success_result(symbol, results)
 
     except Exception as e:
         # Mini-Sweep I.1G: Catch ANY error and return safe output
@@ -1413,6 +1509,175 @@ def evo_backtest_monte_carlo(
 
     except Exception as e:
         # Mini-Sweep I.1G: Catch ANY error and return safe output
+        return _create_error_result(symbol if isinstance(symbol, str) else 'UNKNOWN', str(e), df)
+
+
+def evo_backtest_mc2(
+    symbol: str,
+    df: pd.DataFrame,
+    n_sim: int = 1000,
+    run_block_bootstrap: bool = True,
+    run_turbulence: bool = True,
+    run_corruption: bool = False,
+    config: Optional[BacktestConfig] = None
+) -> Dict[str, Any]:
+    """
+    Run MC2 robustness assessment (Module MC2).
+
+    Enhanced Monte Carlo testing with:
+    - Block bootstrapping (preserves autocorrelation)
+    - Turbulence stress tests (extreme volatility)
+    - Signal corruption tests (degraded signals)
+
+    Args:
+        symbol: Trading symbol
+        df: OHLCV DataFrame
+        n_sim: Number of simulations per test (default: 1000)
+        run_block_bootstrap: Run block bootstrap test (default: True)
+        run_turbulence: Run turbulence stress tests (default: True)
+        run_corruption: Run signal corruption tests (default: False)
+        config: Backtest configuration (optional)
+
+    Returns:
+        Standardized result dictionary with MC2 robustness metrics
+    """
+    try:
+        # Sanitize inputs
+        symbol = _sanitize_symbol(symbol)
+        df = _sanitize_dataframe(df)
+
+        from .monte_carlo_mc2 import (
+            MC2Engine,
+            TurbulenceLevel
+        )
+
+        if config is None:
+            config = BacktestConfig(symbol=symbol)
+
+        # Initialize MC2 engine
+        mc2_engine = MC2Engine(seed=config.random_seed)
+
+        # Define backtest wrapper for turbulence/corruption tests
+        def backtest_func(test_df, corruption_rate=0.0, **kwargs):
+            """Wrapper to run backtest and return Sharpe."""
+            engine = BacktestEngine(config=config)
+            result = engine.run_standard(symbol=symbol, df=test_df)
+            return result.sharpe_ratio
+
+        # Run selected tests
+        results = {}
+
+        # 1. Block Bootstrap (if enabled)
+        if run_block_bootstrap:
+            returns = df['close'].pct_change().dropna()
+            results['block_bootstrap'] = mc2_engine.block_bootstrap.run(
+                returns=returns,
+                block_size=20,
+                n_sim=n_sim
+            )
+
+        # 2. Turbulence Tests (if enabled)
+        if run_turbulence:
+            # Moderate turbulence
+            results['turbulence_moderate'] = mc2_engine.turbulence.run(
+                df=df,
+                backtest_func=backtest_func,
+                level=TurbulenceLevel.MODERATE,
+                n_sim=n_sim
+            )
+
+            # Severe turbulence
+            results['turbulence_severe'] = mc2_engine.turbulence.run(
+                df=df,
+                backtest_func=backtest_func,
+                level=TurbulenceLevel.SEVERE,
+                n_sim=n_sim
+            )
+
+        # 3. Signal Corruption (if enabled)
+        # Note: Requires backtest_func to support corruption parameters
+        # Currently disabled by default as it requires additional implementation
+
+        # Compile results
+        mc2_summary = {
+            'symbol': symbol,
+            'n_simulations': n_sim,
+            'tests_run': list(results.keys()),
+            'results': results
+        }
+
+        return _create_success_result(symbol, mc2_summary)
+
+    except Exception as e:
+        return _create_error_result(symbol if isinstance(symbol, str) else 'UNKNOWN', str(e), df)
+
+
+def evo_backtest_unified_adaptive(
+    symbol: str,
+    df: pd.DataFrame,
+    enable_all_modules: bool = True,
+    enable_mc2: bool = False,
+    config: Optional[BacktestConfig] = None
+) -> Dict[str, Any]:
+    """
+    Run unified adaptive backtest with all evolutionary modules (AR, X2, Y2, MC2, CR2).
+
+    BUILDER PROMPT FINAL: Unified Adaptive Engine Integration
+
+    This is the premier backtest mode that integrates:
+    - Module AR: Adaptive Retraining Engine
+    - Module X2: Forward-Looking Volatility Engine
+    - Module Y2: Adaptive Confidence Scaling
+    - Module MC2: Monte Carlo Robustness Engine (optional)
+    - Module CR2: Enhanced Crisis Detection
+
+    Args:
+        symbol: Trading symbol
+        df: OHLCV DataFrame
+        enable_all_modules: Enable AR/X2/Y2/CR2 (default: True)
+        enable_mc2: Enable MC2 validation (expensive, default: False)
+        config: Backtest configuration (optional)
+
+    Returns:
+        Standardized result dictionary with comprehensive adaptive backtest results
+
+    Example:
+        >>> result = evo_backtest_unified_adaptive('QQQ', df, enable_mc2=True)
+        >>> print(result['modules_enabled'])  # ['AR', 'X2', 'Y2', 'CR2', 'MC2']
+    """
+    try:
+        # Sanitize inputs
+        symbol = _sanitize_symbol(symbol)
+        df = _sanitize_dataframe(df)
+
+        if config is None:
+            config = BacktestConfig(symbol=symbol)
+
+        # Import unified adaptive engine
+        from ..core.unified_adaptive_engine import (
+            UnifiedAdaptiveEngine,
+            UnifiedAdaptiveConfig
+        )
+
+        # Create unified config
+        unified_config = UnifiedAdaptiveConfig(
+            enable_adaptive_retraining=enable_all_modules,
+            enable_forward_vol=enable_all_modules,
+            enable_adaptive_confidence=enable_all_modules,
+            enable_crisis_detection=enable_all_modules,
+            enable_mc2_validation=enable_mc2,
+            random_seed=config.random_seed
+        )
+
+        # Run unified adaptive backtest
+        engine = UnifiedAdaptiveEngine(config=unified_config)
+        result = engine.run_adaptive_backtest(symbol=symbol, df=df)
+
+        # Return standardized success result
+        return _create_success_result(symbol, result)
+
+    except Exception as e:
+        # Catch any error and return safe output
         return _create_error_result(symbol if isinstance(symbol, str) else 'UNKNOWN', str(e), df)
 
 

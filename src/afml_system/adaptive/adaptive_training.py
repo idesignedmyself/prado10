@@ -22,6 +22,7 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 
 from ..backtest.backtest_engine import BacktestEngine, BacktestConfig
+from ..risk import AdaptiveConfidence, ConfidenceThresholds
 
 
 @dataclass
@@ -137,8 +138,22 @@ class AdaptiveTrainer:
             train_df = fold_df.iloc[:train_size]
             test_df = fold_df.iloc[train_size:]
 
-            # Retrain models on this fold's training data
-            fold_config = self._retrain_models(train_df)
+            # PATCH 1: Use expanding-window stable retraining
+            # Avoid tiny slices which cause zero-signal conditions
+            min_bars = 250  # roughly 1 year of data
+
+            if len(train_df) < min_bars:
+                # Not enough data → use full training data available up to this point
+                # Use expanding window from start of dataset to current fold
+                train_df_expanded = df.iloc[:start_idx + train_size]
+                if len(train_df_expanded) >= min_bars:
+                    fold_config = self._retrain_models(train_df_expanded.tail(min_bars))
+                else:
+                    # Still not enough → use standard backtest config (no retraining)
+                    fold_config = FoldConfig()
+            else:
+                # Safe retraining on large enough window
+                fold_config = self._retrain_models(train_df)
 
             # Test on this fold's test data
             fold_result = self._test_window(
@@ -224,8 +239,8 @@ class AdaptiveTrainer:
         """
         Retrain confidence scaling range based on signal quality.
 
-        Analyzes training data to determine optimal confidence
-        scaling range (min_scale, max_scale).
+        Enhanced with Module Y2: Adaptive Confidence Scaling.
+        Uses AdaptiveConfidence to learn optimal thresholds from data.
 
         Args:
             train_df: Training data
@@ -233,17 +248,35 @@ class AdaptiveTrainer:
         Returns:
             Tuple of (min_scale, max_scale) for confidence range
         """
-        # Calculate signal strength from price action
-        returns = train_df['close'].pct_change().dropna()
-        signal_strength = abs(returns).mean()
+        # Module Y2: Use Adaptive Confidence
+        adaptive_conf = AdaptiveConfidence()
 
-        # Adaptive confidence range based on signal strength
-        if signal_strength > 0.015:  # Strong signals
-            confidence_range = (0.6, 1.6)  # More aggressive
-        elif signal_strength > 0.010:  # Medium signals
-            confidence_range = (0.5, 1.5)  # Balanced
-        else:  # Weak signals
-            confidence_range = (0.7, 1.3)  # Conservative
+        # Fit on training data to learn regime-specific thresholds
+        adaptive_conf.fit(train_df)
+
+        # Infer current regime from recent data
+        returns = train_df['close'].pct_change().dropna()
+
+        # Simple regime detection for determining which threshold to use
+        recent_vol = returns.tail(20).std() * np.sqrt(252)
+        recent_trend = returns.tail(20).mean()
+
+        if recent_vol > 0.25:
+            regime = "HIGH_VOL"
+        elif recent_vol < 0.10:
+            regime = "LOW_VOL"
+        elif recent_trend > 0.001:
+            regime = "TRENDING"
+        elif recent_trend < -0.001:
+            regime = "MEAN_REVERTING"
+        else:
+            regime = "NORMAL"
+
+        # Get adaptive thresholds for this regime
+        thresholds = adaptive_conf.determine_threshold(regime)
+
+        # Return the scale range (Module Y uses this for position scaling)
+        confidence_range = thresholds.scale_range
 
         return confidence_range
 

@@ -224,6 +224,8 @@ def backtest(
     walk_forward: bool = typer.Option(False, "--walk-forward", help="Run walk-forward backtest"),
     crisis: bool = typer.Option(False, "--crisis", help="Run crisis period backtest"),
     monte_carlo: Optional[int] = typer.Option(None, "--monte-carlo", help="Run Monte Carlo simulation (specify iterations)"),
+    mc2: Optional[int] = typer.Option(None, "--mc2", help="Run MC2 robustness tests (specify iterations)"),
+    adaptive: bool = typer.Option(False, "--adaptive", help="Run unified adaptive backtest (AR+X2+Y2+CR2)"),
     seed: int = typer.Option(42, "--seed", help="Random seed for determinism")
 ):
     """
@@ -237,6 +239,7 @@ def backtest(
         prado backtest SPY --walk-forward
         prado backtest QQQ --crisis
         prado backtest SPY --monte-carlo 10000
+        prado backtest QQQ --mc2 1000
     """
     args = ctx.args
 
@@ -252,7 +255,10 @@ def backtest(
     _seed_all(seed)
 
     # Determine backtest type
-    if standard:
+    if adaptive:
+        backtest_type = "Unified Adaptive Backtest (AR+X2+Y2+CR2)"
+        backtest_mode = "adaptive"
+    elif standard:
         backtest_type = "Standard Backtest"
         backtest_mode = "standard"
     elif walk_forward:
@@ -264,6 +270,9 @@ def backtest(
     elif monte_carlo:
         backtest_type = f"Monte Carlo Simulation ({monte_carlo:,} iterations)"
         backtest_mode = "monte_carlo"
+    elif mc2:
+        backtest_type = f"MC2 Robustness Tests ({mc2:,} iterations)"
+        backtest_mode = "mc2"
     else:
         backtest_type = "Standard Backtest (default)"
         backtest_mode = "standard"
@@ -287,6 +296,8 @@ def backtest(
             evo_backtest_walk_forward,
             evo_backtest_crisis,
             evo_backtest_monte_carlo,
+            evo_backtest_mc2,
+            evo_backtest_unified_adaptive,
         )
 
         console.print("[green]✓[/green] Modules loaded")
@@ -341,15 +352,18 @@ def backtest(
         ) as progress:
             task = progress.add_task("Backtesting...", total=None)
 
-            if backtest_mode == "standard":
+            if backtest_mode == "adaptive":
+                response = evo_backtest_unified_adaptive(symbol, data, enable_all_modules=True, config=config)
+            elif backtest_mode == "standard":
                 response = evo_backtest_standard(symbol, data, config=config)
             elif backtest_mode == "walk_forward":
                 response = evo_backtest_walk_forward(symbol, data, config=config)
             elif backtest_mode == "crisis":
                 response = evo_backtest_crisis(symbol, data, config=config)
             elif backtest_mode == "monte_carlo":
-                from afml_system.backtest import evo_backtest_monte_carlo
-                response = evo_backtest_monte_carlo(symbol, data, n_simulations=monte_carlo, config=config)
+                response = evo_backtest_monte_carlo(symbol, data, n_sim=monte_carlo, config=config)
+            elif backtest_mode == "mc2":
+                response = evo_backtest_mc2(symbol, data, n_sim=mc2, config=config)
 
             progress.update(task, completed=True)
 
@@ -370,8 +384,107 @@ def backtest(
 
         # Handle both dict (walk-forward aggregated) and object (standard) results
         if isinstance(result, dict):
+            # MC2 results
+            if 'tests_run' in result and 'results' in result:
+                results_table.add_row("Symbol", result['symbol'])
+                results_table.add_row("Simulations per Test", f"{result['n_simulations']:,}")
+                results_table.add_row("Tests Run", f"{len(result['tests_run'])}")
+
+                console.print(results_table)
+
+                # Display detailed results for each test
+                for test_name, test_result in result['results'].items():
+                    console.print(f"\n[bold magenta]Test: {test_name.upper()}[/bold magenta]")
+
+                    test_table = Table(show_header=True, header_style="bold cyan")
+                    test_table.add_column("Metric", style="cyan")
+                    test_table.add_column("Value", style="green", justify="right")
+
+                    test_table.add_row("Actual Sharpe", f"{test_result.actual_sharpe:.3f}")
+                    test_table.add_row("MC Sharpe Mean", f"{test_result.mc_sharpe_mean:.3f}")
+                    test_table.add_row("MC Sharpe Std", f"{test_result.mc_sharpe_std:.3f}")
+                    test_table.add_row("MC Sharpe Range", f"[{test_result.mc_sharpe_min:.3f}, {test_result.mc_sharpe_max:.3f}]")
+                    test_table.add_row("Skill Percentile", f"{test_result.skill_percentile:.1f}%")
+                    test_table.add_row("P-Value", f"{test_result.p_value:.4f}")
+
+                    significance = "✅ SIGNIFICANT" if test_result.significant else "❌ NOT SIGNIFICANT"
+                    test_table.add_row("Significance (p<0.05)", significance)
+
+                    console.print(test_table)
+
+                # Skip the standard results table since we already printed everything
+                results_table = None
+
+            # CR2 Crisis Detection results
+            elif 'num_crises' in result and 'crises' in result:
+                results_table.add_row("Symbol", result['symbol'])
+                results_table.add_row("Detector", result['detector'])
+                results_table.add_row("Crises Detected", f"{result['num_crises']}")
+
+                console.print(results_table)
+
+                # Display detailed results for each detected crisis
+                if result['num_crises'] > 0:
+                    for i, crisis in enumerate(result['crises'], 1):
+                        console.print(f"\n[bold magenta]Crisis {i}: {crisis['name']}[/bold magenta]")
+
+                        crisis_table = Table(show_header=True, header_style="bold cyan")
+                        crisis_table.add_column("Metric", style="cyan")
+                        crisis_table.add_column("Value", style="green", justify="right")
+
+                        # Crisis type with emoji
+                        crisis_type = crisis['type']
+                        type_emoji = {
+                            'LIQUIDITY_CRISIS': '💧',
+                            'PANDEMIC_SHOCK': '🦠',
+                            'BEAR_MARKET': '🐻',
+                            'FLASH_CRASH': '⚡',
+                            'SOVEREIGN_DEBT': '🏛️',
+                            'TECH_BUBBLE': '💻',
+                            'UNKNOWN': '❓'
+                        }.get(crisis_type, '❓')
+
+                        crisis_table.add_row("Type", f"{type_emoji} {crisis_type.replace('_', ' ').title()}")
+                        crisis_table.add_row("Start Date", crisis['start_date'])
+                        crisis_table.add_row("End Date", crisis['end_date'])
+                        crisis_table.add_row("Duration", f"{crisis['duration_days']} days")
+                        crisis_table.add_row("Max Drawdown", f"{crisis['max_drawdown']:.2%}")
+                        crisis_table.add_row("Peak Volatility", f"{crisis['peak_volatility']:.2%}")
+                        crisis_table.add_row("Vol Multiplier", f"{crisis['vol_multiplier']:.2f}x")
+                        crisis_table.add_row("Recovery Days", f"{crisis['recovery_days']}")
+
+                        # Confidence score with color coding
+                        confidence = crisis['match_confidence']
+                        if confidence >= 0.8:
+                            conf_str = f"[green]{confidence:.1%} ✅ High[/green]"
+                        elif confidence >= 0.5:
+                            conf_str = f"[yellow]{confidence:.1%} ⚠️ Medium[/yellow]"
+                        else:
+                            conf_str = f"[red]{confidence:.1%} ❌ Low[/red]"
+                        crisis_table.add_row("Match Confidence", conf_str)
+
+                        console.print(crisis_table)
+                else:
+                    console.print("\n[yellow]No significant crises detected in the data.[/yellow]")
+
+                # Skip the standard results table since we already printed everything
+                results_table = None
+
+            # Monte Carlo results
+            elif 'actual_sharpe' in result:
+                results_table.add_row("Symbol", result.get('symbol', 'N/A'))
+                results_table.add_row("Simulations", f"{result['num_simulations']:,}")
+                results_table.add_row("Actual Sharpe", f"{result['actual_sharpe']:.3f}")
+                results_table.add_row("MC Sharpe Mean", f"{result['mc_sharpe_mean']:.3f}")
+                results_table.add_row("MC Sharpe Std", f"{result['mc_sharpe_std']:.3f}")
+                results_table.add_row("Skill Percentile", f"{result['skill_percentile']:.1f}%")
+                results_table.add_row("P-Value", f"{result['p_value']:.4f}")
+
+                significance = "✅ SIGNIFICANT" if result['significant'] else "❌ NOT SIGNIFICANT"
+                results_table.add_row("Significance (p<0.05)", significance)
+
             # Walk-forward aggregated results have num_folds and aggregated dict
-            if 'num_folds' in result and 'aggregated' in result:
+            elif 'num_folds' in result and 'aggregated' in result:
                 agg = result['aggregated']
                 results_table.add_row("Number of Folds", f"{result['num_folds']}")
                 results_table.add_row("Mean Return", f"{agg.get('total_return', 0.0):.2%}")
@@ -397,7 +510,9 @@ def backtest(
             results_table.add_row("Profit Factor", f"{result.profit_factor:.2f}")
             results_table.add_row("Total Trades", f"{result.total_trades}")
 
-        console.print(results_table)
+        # Only print results_table if not already handled (MC2 sets it to None)
+        if results_table is not None:
+            console.print(results_table)
 
         # Strategy allocation summary
         if hasattr(result, 'strategy_allocations') and result.strategy_allocations:

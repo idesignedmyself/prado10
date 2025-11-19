@@ -8,6 +8,7 @@ Components:
 - WalkForwardEngine: Rolling window walk-forward optimizer
 - CrisisStressEngine: Crisis period stress testing
 - MonteCarloEngine: Statistical skill assessment
+- MC2Engine: Monte Carlo Robustness Engine (Module MC2)
 - BacktestReportBuilder: Comprehensive report builder
 
 Author: PRADO9_EVO Builder
@@ -23,6 +24,8 @@ from .backtest_engine import (
     evo_backtest_walk_forward,
     evo_backtest_crisis,
     evo_backtest_monte_carlo,
+    evo_backtest_mc2,
+    evo_backtest_unified_adaptive,
     evo_backtest_comprehensive,
 )
 
@@ -34,8 +37,27 @@ from .crisis_stress import (
     CrisisStressEngine,
 )
 
+from .crisis_stress_cr2 import (
+    EnhancedCrisisStressEngine,
+    MultiCrisisDetector,
+    SyntheticCrisisGenerator,
+    CrisisType,
+    DetectedCrisis,
+    CrisisSignature,
+)
+
 from .monte_carlo import (
     MonteCarloEngine,
+)
+
+from .monte_carlo_mc2 import (
+    MC2Engine,
+    BlockBootstrappedMCSimulator,
+    TurbulenceStressTester,
+    SignalCorruptionTester,
+    TurbulenceLevel,
+    CorruptionType,
+    MC2Result,
 )
 
 from .reporting import (
@@ -52,11 +74,28 @@ __all__ = [
     'evo_backtest_walk_forward',
     'evo_backtest_crisis',
     'evo_backtest_monte_carlo',
+    'evo_backtest_mc2',
+    'evo_backtest_unified_adaptive',  # BUILDER PROMPT FINAL
     'evo_backtest_comprehensive',
     # Specialized Engines
     'WalkForwardEngine',
     'CrisisStressEngine',
     'MonteCarloEngine',
+    # Module MC2
+    'MC2Engine',
+    'BlockBootstrappedMCSimulator',
+    'TurbulenceStressTester',
+    'SignalCorruptionTester',
+    'TurbulenceLevel',
+    'CorruptionType',
+    'MC2Result',
+    # Module CR2
+    'EnhancedCrisisStressEngine',
+    'MultiCrisisDetector',
+    'SyntheticCrisisGenerator',
+    'CrisisType',
+    'DetectedCrisis',
+    'CrisisSignature',
     # Reporting
     'BacktestReportBuilder',
 ]

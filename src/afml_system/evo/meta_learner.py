@@ -475,6 +475,32 @@ class MetaLearner:
         self.model.fit(X, y)
         self.is_trained = True
 
+    def partial_fit(self, X: pd.DataFrame, y: pd.Series) -> None:
+        """
+        Incrementally update the meta-learner with new data.
+
+        For tree-based models (RF, XGBoost), this re-trains with all data
+        since true online learning isn't supported. For production use,
+        consider SGDClassifier or other online learning algorithms.
+
+        Args:
+            X: Feature matrix (new samples)
+            y: Target labels (1 = outperform, 0 = underperform)
+        """
+        if len(X) == 0:
+            print("Warning: Empty training data, model not updated")
+            return
+
+        # For tree-based models, we need to retrain (they don't support partial_fit)
+        # In a production system, you might want to:
+        # 1. Use SGDClassifier for true online learning
+        # 2. Maintain a sliding window of recent data
+        # 3. Periodically retrain on accumulated data
+
+        # For now, we'll just call fit (which retrains from scratch)
+        # This is fine for adaptive retraining where we retrain on each fold
+        self.fit(X, y)
+
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         """
         Predict probability of outperformance with stability checks.
