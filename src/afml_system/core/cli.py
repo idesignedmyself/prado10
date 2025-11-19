@@ -714,83 +714,112 @@ def predict(
 
         console.print(f"[green]✓[/green] Signal generated")
 
-        # Step 3: Display prediction
-        console.print("\n[bold cyan]📊 Prediction Results[/bold cyan]")
+        # Step 3: Display prediction using Rich Dashboard
+        console.print("\n[bold cyan]📊 Prediction Dashboard[/bold cyan]\n")
 
-        # Current price
-        current_price = result['Close'].iloc[-1]
-        console.print(f"\n[bold]Current Price:[/bold] ${current_price:.2f}")
-
-        # Regime
-        regime_table = Table(show_header=True, header_style="bold magenta")
-        regime_table.add_column("Component", style="cyan")
-        regime_table.add_column("Value", style="green")
-
-        regime_table.add_row("Regime", signal_result.regime)
-
-        # Get volatility from metadata
-        volatility = signal_result.metadata.get('volatility', 0.15)
-        regime_table.add_row("Volatility", f"{volatility:.4f}")
-
-        # Calculate trend strength from features if available
-        trend_strength = 0.0
-        if signal_result.features is not None and not signal_result.features.empty:
-            if 'trend' in signal_result.features.columns:
-                trend_strength = signal_result.features.iloc[-1].get('trend', 0.0)
-        regime_table.add_row("Trend Strength", f"{trend_strength:.4f}")
-
-        console.print("\n[bold]Market Regime:[/bold]")
-        console.print(regime_table)
-
-        # Strategy signals
-        if signal_result.signals_raw:
-            console.print("\n[bold]Strategy Signals:[/bold]")
-
-            signal_table = Table(show_header=True, header_style="bold magenta")
-            signal_table.add_column("Strategy", style="cyan")
-            signal_table.add_column("Side", style="green", justify="right")
-            signal_table.add_column("Probability", style="yellow", justify="right")
-            signal_table.add_column("Forecast Return", style="blue", justify="right")
-
-            for strat_result in signal_result.signals_raw:
-                side_str = "LONG" if strat_result.side > 0 else "SHORT" if strat_result.side < 0 else "NEUTRAL"
-                prob_str = f"{strat_result.probability:.2%}"
-                ret_str = f"{strat_result.forecast_return:+.2%}"
-                signal_table.add_row(strat_result.strategy_name, side_str, prob_str, ret_str)
-
-            console.print(signal_table)
+        # Import dashboard
+        from ..predict.prediction_dashboard import PredictionDashboard
 
         # Calculate aggregated signal from strategy signals
         aggregated_signal = 0.0
         if signal_result.signals_raw:
-            # Weighted average of signals by probability
             total_weight = 0.0
             weighted_sum = 0.0
             for strat in signal_result.signals_raw:
                 weight = strat.probability
-                signal = strat.side * strat.probability  # -1, 0, +1 weighted by confidence
+                signal = strat.side * strat.probability
                 weighted_sum += signal * weight
                 total_weight += weight
 
             if total_weight > 0:
                 aggregated_signal = weighted_sum / total_weight
 
-        # Aggregated signal
-        console.print(f"\n[bold]Aggregated Signal:[/bold] {aggregated_signal:+.3f}")
-
-        # Recommendation
+        # Determine signal string and top strategy
         if aggregated_signal > 0.3:
-            recommendation = "[green]LONG[/green] - Strong buy signal"
+            signal_str = "LONG (Strong)"
         elif aggregated_signal > 0.1:
-            recommendation = "[green]LONG[/green] - Weak buy signal"
+            signal_str = "LONG (Weak)"
         elif aggregated_signal < -0.3:
-            recommendation = "[red]SHORT[/red] - Strong sell signal"
+            signal_str = "SHORT (Strong)"
         elif aggregated_signal < -0.1:
-            recommendation = "[red]SHORT[/red] - Weak sell signal"
+            signal_str = "SHORT (Weak)"
         else:
-            recommendation = "[yellow]NEUTRAL[/yellow] - No clear signal"
+            signal_str = "NEUTRAL"
 
-        console.print(f"\n[bold]Recommendation:[/bold] {recommendation}")
+        # Find top strategy
+        top_strategy = "None"
+        top_prob = 0.0
+        if signal_result.signals_raw:
+            for strat in signal_result.signals_raw:
+                if abs(strat.side) > 0 and strat.probability > top_prob:
+                    top_prob = strat.probability
+                    top_strategy = strat.strategy_name
+
+        # Get volatility and features
+        volatility = signal_result.metadata.get('volatility', 0.15)
+
+        # Extract features
+        features = {}
+        if signal_result.features is not None and not signal_result.features.empty:
+            latest = signal_result.features.iloc[-1]
+            features = {
+                'volatility': latest.get('volatility', 0.0),
+                'ma_5': latest.get('ma_5', 0.0),
+                'ma_20': latest.get('ma_20', 0.0),
+                'ma_50': latest.get('ma_50', 0.0),
+                'rsi': latest.get('rsi', 50.0),
+                'trend': latest.get('trend', 0.0),
+            }
+
+        # Build strategy breakdown
+        strategies = {}
+        if signal_result.signals_raw:
+            for strat in signal_result.signals_raw:
+                strategies[strat.strategy_name] = {
+                    'weight': strat.probability,
+                    'signal': float(strat.side)
+                }
+
+        # Calculate position sizing (simplified for now)
+        current_price = result['Close'].iloc[-1]
+        vol_target = 0.12  # 12% target volatility
+        leverage = min(2.0, vol_target / (volatility + 0.001))  # Cap at 2x
+        exposure = abs(aggregated_signal) * 100.0
+        adj_size = exposure * leverage
+        position_floor = 0.1
+
+        # Calculate risk metrics (simplified)
+        stop_loss = current_price * (1 - 0.02)  # 2% stop
+        take_profit = current_price * (1 + 0.04)  # 4% target
+        exp_dd = volatility * 1.5 * 100  # Expected 5-day DD
+        crisis_score = 0.15  # Placeholder
+
+        # Normalize prediction for dashboard
+        normalized = {
+            "signal": signal_str,
+            "confidence": abs(aggregated_signal),
+            "regime": signal_result.regime.upper(),
+            "top_strategy": top_strategy,
+            "position": {
+                "exposure": exposure,
+                "leverage": leverage,
+                "vol_target": vol_target,
+                "adj_size": adj_size,
+                "floor": position_floor,
+            },
+            "strategies": strategies,
+            "features": features,
+            "risk": {
+                "stop_loss": stop_loss,
+                "take_profit": take_profit,
+                "exp_dd": exp_dd,
+                "crisis_score": crisis_score,
+            }
+        }
+
+        # Render dashboard
+        dashboard = PredictionDashboard()
+        dashboard.render(symbol.upper(), normalized)
 
         console.print("\n[bold green]✅ Prediction Complete![/bold green]")
         console.print(f"\nTo start live trading:")
