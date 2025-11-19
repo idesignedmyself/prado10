@@ -48,17 +48,66 @@ class PredictionDashboard:
         """
         layout = Layout()
 
-        # MAIN PANELS - 3 rows
+        # MAIN PANELS - 4 rows (added recommendation row)
         layout.split_column(
+            Layout(name="recommendation", ratio=4),
             Layout(name="top", ratio=3),
             Layout(name="mid", ratio=3),
             Layout(name="bottom", ratio=4),
         )
 
         # --------------------
+        # (0) RECOMMENDATION PANEL - THE ENTRY
+        # --------------------
+        signal_str = pred["signal"]
+        confidence = pred["confidence"]
+
+        # Determine recommendation and color
+        if "LONG" in signal_str and "Strong" in signal_str:
+            action = "🟢 ENTER LONG"
+            action_style = "bold green"
+            entry_text = f"Buy {symbol} | Target Size: {pred['position']['exposure']:.1f}%"
+        elif "LONG" in signal_str and "Weak" in signal_str:
+            action = "🟡 CONSIDER LONG"
+            action_style = "bold yellow"
+            entry_text = f"Small Buy {symbol} | Target Size: {pred['position']['exposure']:.1f}%"
+        elif "SHORT" in signal_str and "Strong" in signal_str:
+            action = "🔴 ENTER SHORT"
+            action_style = "bold red"
+            entry_text = f"Sell/Short {symbol} | Target Size: {pred['position']['exposure']:.1f}%"
+        elif "SHORT" in signal_str and "Weak" in signal_str:
+            action = "🟠 CONSIDER SHORT"
+            action_style = "bold yellow"
+            entry_text = f"Small Sell {symbol} | Target Size: {pred['position']['exposure']:.1f}%"
+        else:
+            action = "⚪ NO ENTRY"
+            action_style = "bold white"
+            entry_text = f"Stay in cash | Conflicting signals or low confidence"
+
+        # Get current price if available
+        current_price = pred.get("current_price", "N/A")
+        stop_loss = pred["risk"]["stop_loss"]
+        take_profit = pred["risk"]["take_profit"]
+
+        rec_table = Table(show_header=False, expand=True, box=None)
+        rec_table.add_column("Label", style="cyan", width=20)
+        rec_table.add_column("Value", style=action_style)
+
+        rec_table.add_row("ACTION", f"[{action_style}]{action}[/{action_style}]")
+        rec_table.add_row("ENTRY", entry_text)
+        if current_price != "N/A":
+            rec_table.add_row("CURRENT PRICE", f"${current_price:.2f}")
+        rec_table.add_row("STOP LOSS", f"${stop_loss:.2f}")
+        rec_table.add_row("TAKE PROFIT", f"${take_profit:.2f}")
+
+        layout["recommendation"].update(
+            Panel(rec_table, title=f"📊 {symbol} TRADING RECOMMENDATION", border_style=action_style.split()[1])
+        )
+
+        # --------------------
         # (A) SIGNAL PANEL
         # --------------------
-        signal_table = Table(title=f"{symbol} – Signal", expand=True)
+        signal_table = Table(title=f"{symbol} – Signal Analysis", expand=True)
         signal_table.add_column("Field", style="cyan")
         signal_table.add_column("Value", style="green")
 
@@ -68,7 +117,7 @@ class PredictionDashboard:
         signal_table.add_row("Top Strategy", pred["top_strategy"])
         signal_table.add_row("Timestamp", str(datetime.datetime.now())[:19])
 
-        layout["top"].update(Panel(signal_table, title="Current Prediction"))
+        layout["top"].update(Panel(signal_table, title="Signal Details"))
 
         # --------------------
         # (B) POSITION PANEL

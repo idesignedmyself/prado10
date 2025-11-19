@@ -808,6 +808,7 @@ def predict(
             "confidence": abs(aggregated_signal),
             "regime": signal_result.regime.upper(),
             "top_strategy": top_strategy,
+            "current_price": current_price,  # Add current price
             "position": {
                 "exposure": exposure,
                 "leverage": leverage,
