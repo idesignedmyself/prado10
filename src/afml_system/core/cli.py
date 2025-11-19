@@ -368,14 +368,34 @@ def backtest(
         results_table.add_column("Metric", style="cyan")
         results_table.add_column("Value", style="green", justify="right")
 
-        results_table.add_row("Total Return", f"{result.total_return:.2%}")
-        results_table.add_row("Sharpe Ratio", f"{result.sharpe_ratio:.3f}")
-        results_table.add_row("Sortino Ratio", f"{result.sortino_ratio:.3f}")
-        results_table.add_row("Calmar Ratio", f"{result.calmar_ratio:.3f}")
-        results_table.add_row("Max Drawdown", f"{result.max_drawdown:.2%}")
-        results_table.add_row("Win Rate", f"{result.win_rate:.2%}")
-        results_table.add_row("Profit Factor", f"{result.profit_factor:.2f}")
-        results_table.add_row("Total Trades", f"{result.total_trades}")
+        # Handle both dict (walk-forward aggregated) and object (standard) results
+        if isinstance(result, dict):
+            # Walk-forward aggregated results have num_folds and aggregated dict
+            if 'num_folds' in result and 'aggregated' in result:
+                agg = result['aggregated']
+                results_table.add_row("Number of Folds", f"{result['num_folds']}")
+                results_table.add_row("Mean Return", f"{agg.get('total_return', 0.0):.2%}")
+                results_table.add_row("Mean Sharpe", f"{agg.get('sharpe_mean', 0.0):.3f}")
+                results_table.add_row("Mean Sortino", f"{agg.get('sortino_mean', 0.0):.3f}")
+                results_table.add_row("Worst Drawdown", f"{agg.get('max_drawdown', 0.0):.2%}")
+                results_table.add_row("Total Trades (all folds)", f"{agg.get('total_trades', 0)}")
+                results_table.add_row("Consistency %", f"{agg.get('consistency_pct', 0.0):.1f}%")
+            else:
+                # Legacy dict format
+                results_table.add_row("Total Return", f"{result.get('total_return', 0.0):.2%}")
+                results_table.add_row("Sharpe Ratio", f"{result.get('sharpe_ratio', 0.0):.3f}")
+                results_table.add_row("Sortino Ratio", f"{result.get('sortino_ratio', 0.0):.3f}")
+                results_table.add_row("Max Drawdown", f"{result.get('max_drawdown', 0.0):.2%}")
+                results_table.add_row("Total Trades", f"{result.get('total_trades', 0)}")
+        else:
+            results_table.add_row("Total Return", f"{result.total_return:.2%}")
+            results_table.add_row("Sharpe Ratio", f"{result.sharpe_ratio:.3f}")
+            results_table.add_row("Sortino Ratio", f"{result.sortino_ratio:.3f}")
+            results_table.add_row("Calmar Ratio", f"{result.calmar_ratio:.3f}")
+            results_table.add_row("Max Drawdown", f"{result.max_drawdown:.2%}")
+            results_table.add_row("Win Rate", f"{result.win_rate:.2%}")
+            results_table.add_row("Profit Factor", f"{result.profit_factor:.2f}")
+            results_table.add_row("Total Trades", f"{result.total_trades}")
 
         console.print(results_table)
 
