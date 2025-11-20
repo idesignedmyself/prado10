@@ -162,7 +162,8 @@ class BrokerRouter:
 
         # Paper trading log
         if mode == 'paper':
-            self.paper_log_dir = Path.home() / ".prado" / "live" / "paper"
+            from ..utils.paths import get_live_dir
+            self.paper_log_dir = get_live_dir() / "paper"
             self.paper_log_dir.mkdir(parents=True, exist_ok=True)
             self.paper_log_file = self.paper_log_dir / f"orders_{datetime.now().strftime('%Y%m%d')}.json"
         else:

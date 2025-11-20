@@ -147,7 +147,8 @@ class LiveDataFeed:
 
         # Cache directory
         if cache_dir is None:
-            cache_dir = Path.home() / ".prado" / "live" / "cache"
+            from ..utils.paths import get_live_dir
+            cache_dir = get_live_dir() / "cache"
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 

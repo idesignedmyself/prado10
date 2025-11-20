@@ -541,10 +541,11 @@ class BanditBrain:
 
         Args:
             state_dir: Directory for persisting bandit states
-                      Defaults to ~/.prado/evo/
+                      Defaults to .prado/evo/
         """
         if state_dir is None:
-            state_dir = Path.home() / ".prado" / "evo"
+            from ..utils.paths import get_evo_dir
+            state_dir = get_evo_dir()
 
         # Expand tilde and ensure absolute path
         self.state_dir = Path(os.path.expanduser(str(state_dir)))

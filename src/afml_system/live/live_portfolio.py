@@ -31,7 +31,13 @@ from pathlib import Path
 
 LIVE_PORTFOLIO_VERSION = '1.0.0'
 EPSILON = 1e-12
-DEFAULT_STATE_DIR = Path.home() / ".prado" / "live" / "portfolio"
+
+# Default state directory - will use project-local path
+def _get_default_state_dir():
+    from ..utils.paths import get_portfolio_dir
+    return get_portfolio_dir()
+
+DEFAULT_STATE_DIR = None  # Set dynamically in __init__
 
 
 # ============================================================================
@@ -132,7 +138,7 @@ class LivePortfolio:
 
         # State directory
         if state_dir is None:
-            state_dir = DEFAULT_STATE_DIR
+            state_dir = _get_default_state_dir()
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
 

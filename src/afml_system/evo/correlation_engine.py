@@ -503,7 +503,8 @@ class CorrelationClusterEngine:
             correlation_threshold: Threshold for clustering
         """
         if state_dir is None:
-            state_dir = Path.home() / ".prado" / "evo"
+            from ..utils.paths import get_evo_dir
+            state_dir = get_evo_dir()
 
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)

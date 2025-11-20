@@ -101,7 +101,7 @@ def optimize(symbol: str):
 
     console.print(f"\n[bold]Best Score:[/bold] [green]{result['best_score']:.4f}[/green]")
 
-    config_path = f"~/.prado/configs/{symbol}.yaml"
+    config_path = f".prado/configs/{symbol}.yaml"
     console.print(f"\n[green]✓[/green] Config saved to: [cyan]{config_path}[/cyan]")
 
     console.print("\n[bold green]✅ Optimization Complete![/bold green]")

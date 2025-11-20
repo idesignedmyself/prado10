@@ -735,10 +735,11 @@ class GenomeLibrary:
 
         Args:
             state_dir: Directory for genome persistence
-                      Defaults to ~/.prado/evo/
+                      Defaults to .prado/evo/
         """
         if state_dir is None:
-            state_dir = Path.home() / ".prado" / "evo"
+            from ..utils.paths import get_evo_dir
+            state_dir = get_evo_dir()
 
         self.state_dir = Path(os.path.expanduser(str(state_dir)))
         self.state_dir.mkdir(parents=True, exist_ok=True)

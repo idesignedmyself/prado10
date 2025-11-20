@@ -4,9 +4,71 @@
 
 PRADO9_EVO is an advanced quantitative trading system combining Advances in Financial Machine Learning (AFML) with evolutionary algorithms for adaptive, regime-aware strategy selection.
 
-**Current Version:** 3.0.0
+**Current Version:** 3.1.0
 **Status:** Production-ready
-**Last Updated:** 2025-01-18
+**Last Updated:** 2025-01-19
+
+---
+
+## Version History
+
+### [3.1.0] - 2025-01-19 - Internalized State Persistence
+
+**Context:**
+Previous system saved state, configs, and models to user home directory (`~/.prado/`) which polluted the OS environment and made the system non-portable. This release internalizes ALL persistence to the project-local `.prado/` directory.
+
+**Added:**
+- `src/afml_system/utils/paths.py` - Centralized path management (177 lines)
+  - `get_prado_root()` - Returns `Path.cwd() / ".prado"` instead of home directory
+  - `get_config_dir()` - Config storage for auto-tuner
+  - `get_evo_dir()` - Evolutionary module state
+  - `get_models_dir()` - Model persistence
+  - `get_live_dir()` - Live trading state
+  - `get_portfolio_dir()` - Portfolio management
+  - `get_logs_dir()` - System logs
+  - `migrate_from_home_dir()` - Backward compatibility migration
+- `src/afml_system/utils/__init__.py` - Package initialization
+
+**Modified (12 files):**
+
+*AutoTuner (Module B):*
+- `src/afml_system/autotune/auto_tuner.py:94-96` - Changed from `~/.prado/configs` to `get_config_dir()`
+- `src/afml_system/core/cli_optimize.py:104` - Updated user message to show `.prado/configs/`
+
+*Evolutionary Modules (A, C-F):*
+- `src/afml_system/evo/meta_learner.py:645-647` - Changed to use `get_evo_dir()`
+- `src/afml_system/evo/genome.py:741-742` - Changed to use `get_evo_dir()`
+- `src/afml_system/evo/performance_memory.py:153-154` - Changed to use `get_evo_dir()`
+- `src/afml_system/evo/evolution_engine.py:286-287` - Changed to use `get_evo_dir()`
+- `src/afml_system/evo/correlation_engine.py:506-507` - Changed to use `get_evo_dir()`
+- `src/afml_system/evo/bandit_brain.py:547-548` - Changed to use `get_evo_dir()`
+
+*Live Trading Modules:*
+- `src/afml_system/live/broker_router.py:165-166` - Changed to use `get_live_dir() / "paper"`
+- `src/afml_system/live/data_feed.py:150-151` - Changed to use `get_live_dir() / "cache"`
+- `src/afml_system/live/logger.py:30-36,108` - Added `_get_default_log_dir()` helper
+- `src/afml_system/live/live_portfolio.py:36-40,141` - Added `_get_default_state_dir()` helper
+
+**Verified:**
+- ✅ No `Path.home()` references remain (except in paths.py utility)
+- ✅ No `expanduser ~/.prado` references remain
+- ✅ `prado optimize QQQ` saves config to `.prado/configs/QQQ.yaml`
+- ✅ `prado predict QQQ` works correctly with new paths
+- ✅ Models and artifacts save to project `.prado/` directory
+
+**Impact:**
+- System now fully portable - no OS environment pollution
+- All state contained within project directory
+- Easy cleanup (delete `.prado/` directory)
+- Simplified deployment and version control
+- Backward compatibility via migration utility
+
+**Breaking Changes:**
+- Old `~/.prado/` directory no longer used
+- Users must run migration or re-optimize symbols
+- Configs, models, and logs now in project `.prado/`
+
+**Status:** Production-ready, verified working
 
 ---
 

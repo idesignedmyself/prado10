@@ -27,7 +27,13 @@ from dataclasses import dataclass, asdict
 # ============================================================================
 
 LOGGER_VERSION = '1.0.0'
-DEFAULT_LOG_DIR = Path.home() / ".prado" / "logs"
+
+# Default log directory - will use project-local path
+def _get_default_log_dir():
+    from ..utils.paths import get_logs_dir
+    return get_logs_dir()
+
+DEFAULT_LOG_DIR = None  # Set dynamically in __init__
 
 
 # ============================================================================
@@ -92,14 +98,14 @@ class LiveLogger:
         Initialize live logger.
 
         Args:
-            log_dir: Log directory (default: ~/.prado/logs/)
+            log_dir: Log directory (default: .prado/logs/)
             enable_json: Enable JSON logging
             enable_text: Enable text logging
             enable_console: Enable console output
         """
         # Log directory
         if log_dir is None:
-            log_dir = DEFAULT_LOG_DIR
+            log_dir = _get_default_log_dir()
         self.log_dir = Path(log_dir)
         self.log_dir.mkdir(parents=True, exist_ok=True)
 

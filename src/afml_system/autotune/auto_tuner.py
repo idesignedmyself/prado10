@@ -91,8 +91,9 @@ def cpcv_splits(df: pd.DataFrame, k: int = 4) -> List[Tuple[pd.DataFrame, pd.Dat
 class AutoTuner:
     def __init__(self, symbol: str):
         self.symbol = symbol.upper()
-        self.config_dir = os.path.expanduser(f"~/.prado/configs")
-        os.makedirs(self.config_dir, exist_ok=True)
+        # Use project-local path utility instead of home directory
+        from ..utils.paths import get_config_dir
+        self.config_dir = str(get_config_dir())
 
     def run(self, df: pd.DataFrame) -> Dict:
         # Check minimum data requirement
