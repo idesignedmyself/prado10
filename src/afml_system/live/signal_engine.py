@@ -684,17 +684,15 @@ def evo_live_signal(
         df: OHLCV DataFrame
         symbol: Trading symbol
         horizon: Time horizon
-        strategies: Strategy functions (optional)
+        strategies: Strategy functions (optional, defaults to ALL 11 strategies)
 
     Returns:
         LiveSignalResult
     """
-    # Use default strategies if none provided
+    # Use ALL strategies from registry if none provided
     if strategies is None:
-        strategies = {
-            'momentum': momentum_strategy,
-            'mean_reversion': mean_reversion_strategy
-        }
+        from ..strategies import STRATEGY_REGISTRY
+        strategies = STRATEGY_REGISTRY
 
     engine = LiveSignalEngine(strategies=strategies)
     return engine.generate(df, symbol, horizon)

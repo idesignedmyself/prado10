@@ -699,15 +699,11 @@ def predict(
         # Step 2: Generate signal
         console.print("\n[bold]Step 2: Generating signal[/bold]")
 
-        # Import default strategies
-        from ..live.signal_engine import momentum_strategy, mean_reversion_strategy
+        # Import ALL strategies from registry (11 total)
+        from ..strategies import STRATEGY_REGISTRY
 
-        # Initialize signal engine with default strategies
-        strategies = {
-            'momentum': momentum_strategy,
-            'mean_reversion': mean_reversion_strategy
-        }
-        signal_engine = LiveSignalEngine(strategies=strategies)
+        # Initialize signal engine with ALL strategies
+        signal_engine = LiveSignalEngine(strategies=STRATEGY_REGISTRY)
 
         with Progress(
             SpinnerColumn(),

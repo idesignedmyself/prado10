@@ -4,13 +4,83 @@
 
 PRADO9_EVO is an advanced quantitative trading system combining Advances in Financial Machine Learning (AFML) with evolutionary algorithms for adaptive, regime-aware strategy selection.
 
-**Current Version:** 3.1.0
+**Current Version:** 3.2.0
 **Status:** Production-ready
 **Last Updated:** 2025-01-19
 
 ---
 
 ## Version History
+
+### [3.2.0] - 2025-01-19 - Unified Strategy Registry (THE FIX)
+
+**Problem:**
+LiveSignalEngine only registered 2 strategies (momentum, mean_reversion) despite having 11 total strategies in the codebase. The system was "running a Ferrari engine with only 2 cylinders firing" - Module V (5 volatility strategies) and Module B2 (4 breakout strategies) existed but weren't wired to the prediction engine.
+
+**Root Cause:**
+- `signal_engine.py:694-697` hardcoded only 2 strategies
+- `cli.py:706-710` also hardcoded only 2 strategies
+- No centralized registry to unify all strategies
+- Different strategy signatures (VolatilitySignal vs StrategyResult) prevented integration
+
+**Solution:**
+Created centralized strategy registry with signature adapters to unify all 11 strategies into a common interface.
+
+**Added:**
+- `src/afml_system/strategies/__init__.py` - Unified strategy registry (280+ lines)
+  - `StrategyAdapter` class - Converts different strategy signatures
+  - `build_strategy_registry()` - Builds complete registry
+  - `STRATEGY_REGISTRY` - Dict of all 11 strategies
+  - Adapters for DataFrame → Dict features conversion
+  - Adapters for VolatilitySignal/BreakoutSignal → StrategyResult conversion
+
+**Modified:**
+- `src/afml_system/live/signal_engine.py:692-695` - Use STRATEGY_REGISTRY instead of hardcoded 2
+- `src/afml_system/core/cli.py:702-706` - Use STRATEGY_REGISTRY in predict command
+
+**Strategy Registry (11 Total):**
+
+*Base Strategies (2):*
+1. momentum - Trend-following momentum
+2. mean_reversion - Mean reversion signals
+
+*Volatility Strategies (5) - Module V:*
+3. vol_breakout - Volatility expansion trading
+4. vol_spike_fade - Fade extreme volatility spikes
+5. vol_compression - Anticipate breakout after compression
+6. vol_mean_revert - Volatility mean reversion
+7. trend_breakout - Trend breakout from vol module
+
+*Breakout Strategies (4) - Module B2:*
+8. donchian_breakout - Donchian channel breakouts (turtle trader)
+9. range_breakout - Consolidation range breakouts
+10. atr_breakout - ATR-based volatility breakouts
+11. momentum_surge - Momentum acceleration detection
+
+**Verified:**
+- ✅ Registry contains all 11 strategies
+- ✅ All strategies execute without errors
+- ✅ Signature adapters work correctly (Dict → DataFrame conversion)
+- ✅ Signal adapters work correctly (VolatilitySignal → StrategyResult)
+- ✅ `prado predict QQQ` runs with all 11 strategies
+- ✅ Test shows 11 signals generated (was 2 before)
+
+**Impact:**
+- **5.5x strategy diversity** (11 strategies vs 2)
+- All volatility and breakout strategies now active
+- Regime-aware strategy selection now functional
+- Proper ensemble diversification achieved
+- System now matches CHANGELOG.md specification
+
+**Technical Details:**
+- Adapter handles class methods → standalone functions
+- Feature extraction from DataFrame to Dict format
+- Regime detection integrated into adapters
+- Metadata preserved through conversion (bandit_weight, uniqueness, etc.)
+
+**Status:** Production-ready, all cylinders firing
+
+---
 
 ### [3.1.0] - 2025-01-19 - Internalized State Persistence
 
