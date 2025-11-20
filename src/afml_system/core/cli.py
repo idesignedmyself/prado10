@@ -226,7 +226,9 @@ def backtest(
     monte_carlo: Optional[int] = typer.Option(None, "--monte-carlo", help="Run Monte Carlo simulation (specify iterations)"),
     mc2: Optional[int] = typer.Option(None, "--mc2", help="Run MC2 robustness tests (specify iterations)"),
     adaptive: bool = typer.Option(False, "--adaptive", help="Run unified adaptive backtest (AR+X2+Y2+CR2)"),
-    seed: int = typer.Option(42, "--seed", help="Random seed for determinism")
+    seed: int = typer.Option(42, "--seed", help="Random seed for determinism"),
+    start: Optional[str] = typer.Option(None, "--start", help="Start date (MM-DD-YYYY). If not specified, defaults to 5 years ago"),
+    end: Optional[str] = typer.Option(None, "--end", help="End date (MM-DD-YYYY). If not specified, defaults to today")
 ):
     """
     Run backtest on PRADO9_EVO strategy.
@@ -240,6 +242,8 @@ def backtest(
         prado backtest QQQ --crisis
         prado backtest SPY --monte-carlo 10000
         prado backtest QQQ --mc2 1000
+        prado backtest QQQ --standard --start 01-01-2020 --end 12-31-2023
+        prado backtest QQQ --walk-forward --start 01-01-2023 --end 12-31-2025
     """
     args = ctx.args
 
@@ -279,10 +283,17 @@ def backtest(
 
     # Display configuration
     console.print("\n[bold cyan]📊 PRADO9_EVO Backtest Engine[/bold cyan]")
+    config_lines = [
+        f"[green]Symbol:[/green] {symbol}",
+        f"[green]Type:[/green] {backtest_type}",
+        f"[green]Seed:[/green] {seed}"
+    ]
+    if start or end:
+        date_range = f"{start or 'auto'} to {end or 'today'}"
+        config_lines.append(f"[green]Date Range:[/green] {date_range}")
+
     console.print(Panel.fit(
-        f"[green]Symbol:[/green] {symbol}\n"
-        f"[green]Type:[/green] {backtest_type}\n"
-        f"[green]Seed:[/green] {seed}",
+        "\n".join(config_lines),
         title="Configuration",
         border_style="cyan"
     ))
@@ -306,11 +317,23 @@ def backtest(
         console.print(f"\n[bold]Loading {symbol} data...[/bold]")
 
         import yfinance as yf
-
-        # Default to 5 years of data
         from datetime import datetime, timedelta
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=5*365)
+
+        # Parse custom dates or use defaults
+        try:
+            if end:
+                end_date = datetime.strptime(end, '%m-%d-%Y')
+            else:
+                end_date = datetime.now()
+
+            if start:
+                start_date = datetime.strptime(start, '%m-%d-%Y')
+            else:
+                start_date = end_date - timedelta(days=5*365)
+        except ValueError as e:
+            console.print(f"[red]Error:[/red] Invalid date format. Use MM-DD-YYYY (e.g., 01-15-2020)")
+            console.print(f"[red]Details:[/red] {str(e)}")
+            raise typer.Exit(code=1)
 
         data = yf.download(
             symbol,
