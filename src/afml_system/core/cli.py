@@ -590,18 +590,22 @@ def backtest(
         if results_table is not None:
             console.print(results_table)
 
-        # Strategy allocation summary
+        # Strategy allocation summary (stabilized allocator weights)
         if hasattr(result, 'strategy_allocations') and result.strategy_allocations:
-            console.print("\n[bold]Strategy Allocations:[/bold]")
+            console.print("\n[bold]Strategy Allocations (Stabilized Weights):[/bold]")
 
             strat_table = Table(show_header=True, header_style="bold magenta")
             strat_table.add_column("Strategy", style="cyan")
-            strat_table.add_column("Allocation", style="green", justify="right")
+            strat_table.add_column("Weight (Normalized)", style="green", justify="right")
 
-            for strategy, allocation in sorted(result.strategy_allocations.items(), key=lambda x: -x[1]):
-                strat_table.add_row(strategy, f"{allocation:.2%}")
+            for strategy, allocation in sorted(result.strategy_allocations.items(), key=lambda x: -abs(x[1])):
+                strat_table.add_row(
+                    strategy,
+                    f"{allocation:.2%}"
+                )
 
             console.print(strat_table)
+            console.print(f"  [dim]Note: Average allocator weights across {result.total_trades} trades (tanh + L1 normalized).[/dim]")
 
         console.print("\n[bold green]✅ Backtest Complete![/bold green]")
 
@@ -851,9 +855,37 @@ def predict(
                 'trend': latest.get('trend', 0.0),
             }
 
-        # Build strategy breakdown
-        strategies = {}
+        # Step 3.5: Run allocator to get stabilized weights
+        allocation_decision = None
         if signal_result.signals_raw:
+            try:
+                allocation_decision = evo_allocate(
+                    signals=signal_result.signals_raw,
+                    regime=signal_result.regime,
+                    horizon='5d',
+                    corr_data=None,
+                    risk_params=None
+                )
+            except Exception as e:
+                console.print(f"[yellow]Warning: Allocator failed ({e}), using fallback weights[/yellow]")
+
+        # Build strategy breakdown using allocator weights (if available)
+        strategies = {}
+        if allocation_decision and hasattr(allocation_decision, 'strategy_weights'):
+            # Use stabilized allocator weights
+            for strat_name, weight in allocation_decision.strategy_weights.items():
+                # Find the signal for this strategy
+                strat_signal = 0
+                for strat in signal_result.signals_raw:
+                    if strat.strategy_name == strat_name:
+                        strat_signal = float(strat.side)
+                        break
+                strategies[strat_name] = {
+                    'weight': abs(weight),  # Display as positive weight
+                    'signal': strat_signal
+                }
+        elif signal_result.signals_raw:
+            # Fallback to raw probabilities
             for strat in signal_result.signals_raw:
                 strategies[strat.strategy_name] = {
                     'weight': strat.probability,

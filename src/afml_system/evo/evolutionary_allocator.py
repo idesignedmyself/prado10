@@ -27,6 +27,82 @@ from collections import defaultdict
 
 
 # ============================================================================
+# STABILIZED ALLOCATOR WEIGHTS
+# ============================================================================
+
+class StabilizedAllocatorWeights:
+    """
+    Hybrid stabilization engine for institutional-grade allocation.
+
+    Prevents magnitude explosions while preserving contrarian alpha.
+
+    Pipeline:
+    1. Soft-clipping via tanh() to bound weights to [-1, 1]
+    2. L1 normalization to preserve relative voting power
+    3. Sign-preserving normalization (contrarian alpha intact)
+
+    This eliminates the -393%, -190%, -46% explosions while
+    maintaining the mathematical properties of the ensemble.
+    """
+
+    def soft_clip(self, weights: Dict[str, float]) -> Dict[str, float]:
+        """
+        Apply tanh soft-clipping to prevent magnitude explosions.
+
+        Maps (-inf, +inf) → (-1, +1) smoothly.
+
+        Args:
+            weights: Raw strategy weights
+
+        Returns:
+            Soft-clipped weights
+        """
+        return {k: float(np.tanh(v)) for k, v in weights.items()}
+
+    def l1_normalize(self, weights: Dict[str, float]) -> Dict[str, float]:
+        """
+        Normalize so sum of absolute weights = 1.
+
+        Preserves sign and relative ratios.
+
+        Args:
+            weights: Weights to normalize
+
+        Returns:
+            L1-normalized weights
+        """
+        if not weights:
+            return {}
+
+        vals = np.array(list(weights.values()))
+        keys = list(weights.keys())
+
+        mag = np.sum(np.abs(vals))
+
+        # Fallback to uniform if magnitude too small
+        if mag < EPSILON:
+            uniform = 1.0 / len(weights)
+            return {k: uniform for k in keys}
+
+        norm = vals / mag
+        return dict(zip(keys, norm.tolist()))
+
+    def stabilize(self, raw_weights: Dict[str, float]) -> Dict[str, float]:
+        """
+        Full hybrid stabilization pipeline.
+
+        Args:
+            raw_weights: Raw weights from cascade
+
+        Returns:
+            Stabilized weights ready for allocation
+        """
+        clipped = self.soft_clip(raw_weights)
+        normalized = self.l1_normalize(clipped)
+        return normalized
+
+
+# ============================================================================
 # CONSTANTS
 # ============================================================================
 
@@ -537,10 +613,17 @@ class EvolutionaryAllocator:
     Sweep G.1 - Institutional-grade risk controls and diagnostics.
     """
 
-    def __init__(self):
-        """Initialize allocator components."""
+    def __init__(self, allocator_mode: str = "stabilized"):
+        """
+        Initialize allocator components.
+
+        Args:
+            allocator_mode: "stabilized" (default, hybrid soft-clip + L1) or "legacy"
+        """
         self.weights_engine = AllocationWeights()
         self.conflict_engine = ConflictEngine()
+        self.stabilizer = StabilizedAllocatorWeights()
+        self.allocator_mode = allocator_mode  # "stabilized" or "legacy"
 
     def allocate(
         self,
@@ -616,7 +699,23 @@ class EvolutionaryAllocator:
         self.weights_engine.apply_bandit_weights(debug_weights, signals)
         self.weights_engine.apply_uniqueness_weights(debug_weights, signals)
         self.weights_engine.apply_correlation_penalties(debug_weights, signals)
-        weights = self.weights_engine.normalize(debug_weights)
+
+        # Extract penalized weights before normalization
+        raw_weights = {k: v['penalized'] for k, v in debug_weights.items()}
+
+        # Hybrid mode: stabilized (default) or legacy
+        if self.allocator_mode == "stabilized":
+            # Use stabilized normalization (soft-clip + L1)
+            weights = self.stabilizer.stabilize(raw_weights)
+
+            # Store both raw and stabilized for diagnostics
+            stabilized_weights = weights
+            raw_weights_for_display = raw_weights
+        else:
+            # Legacy normalization (original behavior)
+            weights = self.weights_engine.normalize(debug_weights)
+            stabilized_weights = weights
+            raw_weights_for_display = raw_weights
 
         # Update signal allocation weights
         for signal in signals:
@@ -670,7 +769,7 @@ class EvolutionaryAllocator:
         risk_adjusted_position = position
         position = float(np.clip(position, -1.0, 1.0))
 
-        # Build decision with enhanced diagnostics (Sweep G.1)
+        # Build decision with enhanced diagnostics (Sweep G.1 + Stabilization)
         decision = AllocationDecision(
             final_position=position,
             strategy_weights=weights,
@@ -679,6 +778,9 @@ class EvolutionaryAllocator:
             horizon=horizon,
             details={
                 'debug_weights': debug_weights,
+                'raw_strategy_votes': raw_weights_for_display,  # Pre-allocator signal intensity
+                'stabilized_allocator_weights': stabilized_weights,  # Post-stabilization
+                'allocator_mode': self.allocator_mode,
                 'conflict_ratio': float(conflict_ratio),
                 'conflict_factor': float(conflict_factor),
                 'raw_position': float(raw_position),

@@ -783,9 +783,12 @@ class BacktestEngine:
                     details={'error': str(e)}
                 )
 
-            # Track strategy allocations
+            # Track strategy allocations (per-trade snapshots for averaging)
+            # Store each trade's allocator weights separately instead of accumulating
             for strat_id, weight in allocation.strategy_weights.items():
-                strategy_allocations[strat_id] = strategy_allocations.get(strat_id, 0.0) + weight
+                if strat_id not in strategy_allocations:
+                    strategy_allocations[strat_id] = []
+                strategy_allocations[strat_id].append(weight)
 
             # Module Y: Apply confidence-based position scaling FIRST
             final_position = allocation.final_position
@@ -1140,6 +1143,15 @@ class BacktestEngine:
 
         profit_factor = total_wins / total_losses if total_losses > EPSILON else 0.0
 
+        # Compute average allocator weights from per-trade snapshots
+        # strategy_allocations is now Dict[str, List[float]] -> convert to Dict[str, float]
+        avg_strategy_allocations = {}
+        for strategy_name, weights_list in strategy_allocations.items():
+            if weights_list:
+                avg_strategy_allocations[strategy_name] = float(np.mean(weights_list))
+            else:
+                avg_strategy_allocations[strategy_name] = 0.0
+
         # Build result
         result = BacktestResult(
             symbol=symbol,
@@ -1164,7 +1176,7 @@ class BacktestEngine:
             drawdown=drawdown,
             trades=trades,
             regime_counts=regime_counts,
-            strategy_allocations=strategy_allocations
+            strategy_allocations=avg_strategy_allocations
         )
 
         return result

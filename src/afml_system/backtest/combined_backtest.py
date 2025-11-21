@@ -363,10 +363,14 @@ def evo_backtest_combined(
     # Generate walk-forward folds
     folds = _generate_walkforward_folds(train_start, train_end, wf_end, fold_size_days=90)
 
+    # Format dates as MM-DD-YYYY
+    def format_date(d: datetime.date) -> str:
+        return d.strftime('%m-%d-%Y')
+
     console.print(f"\n[bold cyan]📊 Combined Backtest: {symbol}[/bold cyan]")
-    console.print(f"[green]Training:[/green] {train_start} → {train_end}")
-    console.print(f"[green]Standard OOS:[/green] {std_start} → {std_end}")
-    console.print(f"[green]Walk-Forward:[/green] {wf_start} → {wf_end} ({len(folds)} folds)")
+    console.print(f"[green]Training:[/green] {format_date(train_start)} → {format_date(train_end)}")
+    console.print(f"[green]Standard OOS:[/green] {format_date(std_start)} → {format_date(std_end)}")
+    console.print(f"[green]Walk-Forward:[/green] {format_date(wf_start)} → {format_date(wf_end)} ({len(folds)} folds)")
     if auto_adjusted:
         console.print(f"[yellow]⚠ Auto-Adjustment:[/yellow] {adjustment_reason}\n")
 
@@ -374,11 +378,80 @@ def evo_backtest_combined(
     console.print("\n[bold yellow]═══ Standard Backtest ═══[/bold yellow]")
     std_response = evo_backtest_standard(symbol, data, config=config)
 
+    # Display standard results
+    if std_response['status'] == 'success':
+        std_result = std_response['result']
+        console.print("\n[bold cyan]📈 Standard Backtest Results[/bold cyan]")
+
+        std_table = Table(show_header=True, header_style="bold magenta")
+        std_table.add_column("Metric", style="cyan")
+        std_table.add_column("Value", style="green", justify="right")
+
+        # Handle both dict and object results
+        if isinstance(std_result, dict):
+            std_table.add_row("Total Return", f"{std_result.get('total_return', 0.0):.2%}")
+            std_table.add_row("Sharpe Ratio", f"{std_result.get('sharpe_ratio', 0.0):.3f}")
+            std_table.add_row("Sortino Ratio", f"{std_result.get('sortino_ratio', 0.0):.3f}")
+            std_table.add_row("Max Drawdown", f"{std_result.get('max_drawdown', 0.0):.2%}")
+            std_table.add_row("Total Trades", f"{std_result.get('total_trades', 0)}")
+        else:
+            std_table.add_row("Total Return", f"{std_result.total_return:.2%}")
+            std_table.add_row("Sharpe Ratio", f"{std_result.sharpe_ratio:.3f}")
+            std_table.add_row("Sortino Ratio", f"{std_result.sortino_ratio:.3f}")
+            std_table.add_row("Calmar Ratio", f"{std_result.calmar_ratio:.3f}")
+            std_table.add_row("Max Drawdown", f"{std_result.max_drawdown:.2%}")
+            std_table.add_row("Win Rate", f"{std_result.win_rate:.2%}")
+            std_table.add_row("Profit Factor", f"{std_result.profit_factor:.2f}")
+            std_table.add_row("Total Trades", f"{std_result.total_trades}")
+
+        console.print(std_table)
+
+        # Strategy allocations if available (stabilized weights)
+        if hasattr(std_result, 'strategy_allocations') and std_result.strategy_allocations:
+            console.print("\n[bold]Strategy Allocations (Stabilized Weights):[/bold]")
+            strat_table = Table(show_header=True, header_style="bold magenta")
+            strat_table.add_column("Strategy", style="cyan")
+            strat_table.add_column("Weight (Normalized)", style="green", justify="right")
+
+            for strategy, allocation in sorted(std_result.strategy_allocations.items(), key=lambda x: -abs(x[1])):
+                strat_table.add_row(strategy, f"{allocation:.2%}")
+
+            console.print(strat_table)
+            console.print(f"  [dim]Note: Average allocator weights across {std_result.total_trades} trades (tanh + L1 normalized).[/dim]")
+
     # Run walk-forward backtest
     console.print("\n[bold yellow]═══ Walk-Forward Backtest ═══[/bold yellow]")
     wf_response = evo_backtest_walk_forward(symbol, data, config=config)
 
-    # Return both responses (no need to extract and re-render)
+    # Display walk-forward results
+    if wf_response['status'] == 'success':
+        wf_result = wf_response['result']
+        console.print("\n[bold cyan]📈 Walk-Forward Backtest Results[/bold cyan]")
+
+        wf_table = Table(show_header=True, header_style="bold magenta")
+        wf_table.add_column("Metric", style="cyan")
+        wf_table.add_column("Value", style="green", justify="right")
+
+        # Walk-forward aggregated results
+        if isinstance(wf_result, dict) and 'num_folds' in wf_result and 'aggregated' in wf_result:
+            agg = wf_result['aggregated']
+            wf_table.add_row("Number of Folds", f"{wf_result['num_folds']}")
+            wf_table.add_row("Mean Return", f"{agg.get('total_return', 0.0):.2%}")
+            wf_table.add_row("Mean Sharpe", f"{agg.get('sharpe_mean', 0.0):.3f}")
+            wf_table.add_row("Mean Sortino", f"{agg.get('sortino_mean', 0.0):.3f}")
+            wf_table.add_row("Worst Drawdown", f"{agg.get('max_drawdown', 0.0):.2%}")
+            wf_table.add_row("Total Trades (all folds)", f"{agg.get('total_trades', 0)}")
+            wf_table.add_row("Consistency %", f"{agg.get('consistency_pct', 0.0):.1f}%")
+        else:
+            # Fallback for other dict formats
+            wf_table.add_row("Total Return", f"{wf_result.get('total_return', 0.0):.2%}")
+            wf_table.add_row("Sharpe Ratio", f"{wf_result.get('sharpe_ratio', 0.0):.3f}")
+            wf_table.add_row("Sortino Ratio", f"{wf_result.get('sortino_ratio', 0.0):.3f}")
+            wf_table.add_row("Max Drawdown", f"{wf_result.get('max_drawdown', 0.0):.2%}")
+            wf_table.add_row("Total Trades", f"{wf_result.get('total_trades', 0)}")
+
+        console.print(wf_table)
+
     console.print("\n[green]✅ Combined Backtest Complete![/green]\n")
 
     return {
