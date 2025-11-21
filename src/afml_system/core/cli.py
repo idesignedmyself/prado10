@@ -220,6 +220,7 @@ def train(
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def backtest(
     ctx: typer.Context,
+    combo: bool = typer.Option(False, "--combo", help="Run combined standard + walk-forward backtest"),
     standard: bool = typer.Option(False, "--standard", help="Run standard backtest"),
     walk_forward: bool = typer.Option(False, "--walk-forward", help="Run walk-forward backtest"),
     crisis: bool = typer.Option(False, "--crisis", help="Run crisis period backtest"),
@@ -227,8 +228,10 @@ def backtest(
     mc2: Optional[int] = typer.Option(None, "--mc2", help="Run MC2 robustness tests (specify iterations)"),
     adaptive: bool = typer.Option(False, "--adaptive", help="Run unified adaptive backtest (AR+X2+Y2+CR2)"),
     seed: int = typer.Option(42, "--seed", help="Random seed for determinism"),
-    start: Optional[str] = typer.Option(None, "--start", help="Start date (MM-DD-YYYY). If not specified, defaults to 5 years ago"),
-    end: Optional[str] = typer.Option(None, "--end", help="End date (MM-DD-YYYY). If not specified, defaults to today")
+    start: Optional[str] = typer.Option(None, "--start", help="Start date (MM-DD-YYYY) for training start or standard/WF start"),
+    end: Optional[str] = typer.Option(None, "--end", help="End date (MM-DD-YYYY) for training end or standard/WF end"),
+    wf: Optional[str] = typer.Option(None, "--wf", help="Walk-forward end date (MM-DD-YYYY). Required with --combo"),
+    strict_dates: bool = typer.Option(False, "--strict-dates", help="Fail on date overlaps instead of auto-adjusting")
 ):
     """
     Run backtest on PRADO9_EVO strategy.
@@ -244,6 +247,7 @@ def backtest(
         prado backtest QQQ --mc2 1000
         prado backtest QQQ --standard --start 01-01-2020 --end 12-31-2023
         prado backtest QQQ --walk-forward --start 01-01-2023 --end 12-31-2025
+        prado backtest QQQ --combo --start 01-01-2020 --end 12-31-2023 --wf 12-31-2025
     """
     args = ctx.args
 
@@ -257,6 +261,55 @@ def backtest(
 
     # Seed for determinism
     _seed_all(seed)
+
+    # Handle combined backtest separately (early exit)
+    if combo:
+        if not (start and end and wf):
+            console.print("[red]Error:[/red] --combo requires --start, --end, and --wf")
+            console.print("\nExample: prado backtest QQQ --combo --start 01-01-2020 --end 12-31-2023 --wf 12-31-2025")
+            raise typer.Exit(code=1)
+
+        # Import combined backtest
+        from afml_system.backtest import evo_backtest_combined
+
+        # Load data
+        console.print(f"\n[bold]Loading {symbol} data for combined backtest...[/bold]")
+        import yfinance as yf
+        from datetime import datetime
+
+        # Use full date range for data loading
+        data = yf.download(symbol, start='2015-01-01', end=datetime.now().strftime('%Y-%m-%d'), progress=False)
+
+        if data.empty:
+            console.print(f"[red]Error:[/red] No data retrieved for {symbol}")
+            raise typer.Exit(code=1)
+
+        # Fix yfinance MultiIndex columns
+        cols = data.columns
+        if isinstance(cols[0], tuple):
+            data.columns = [str(col[0]).lower() for col in cols]
+        else:
+            data.columns = [str(col).lower() for col in cols]
+
+        console.print(f"[green]✓[/green] Loaded {len(data)} bars")
+
+        # Create config
+        from afml_system.backtest import BacktestConfig
+        config = BacktestConfig(symbol=symbol, random_seed=seed)
+
+        # Run combined backtest
+        result = evo_backtest_combined(
+            symbol=symbol,
+            data=data,
+            start=start,
+            end=end,
+            wf=wf,
+            strict=strict_dates,
+            config=config
+        )
+
+        console.print("\n[green]✅ Combined Backtest Complete![/green]\n")
+        return
 
     # Determine backtest type
     if adaptive:

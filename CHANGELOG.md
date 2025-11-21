@@ -4,13 +4,81 @@
 
 PRADO9_EVO is an advanced quantitative trading system combining Advances in Financial Machine Learning (AFML) with evolutionary algorithms for adaptive, regime-aware strategy selection.
 
-**Current Version:** 3.3.0
+**Current Version:** 3.4.0
 **Status:** Production-ready
 **Last Updated:** 2025-01-19
 
 ---
 
 ## Version History
+
+### [3.4.0] - 2025-01-19 - Combined Backtest Mode (Standard + Walk-Forward)
+
+**Enhancement:**
+Added unified combined backtest mode that runs both standard and walk-forward backtests in a single command with intelligent date window management, overlap detection, and auto-adjustment.
+
+**Added:**
+- `src/afml_system/backtest/combined_backtest.py` - New combined backtest engine (400+ lines)
+  - `evo_backtest_combined()` - Main combined backtest function
+  - `CombinedBacktestResult` - Unified result dataclass
+  - `_validate_and_adjust_windows()` - Smart date validation and auto-adjustment
+  - `_calculate_windows()` - Standard (365-day) and walk-forward window calculation
+  - `_generate_walkforward_folds()` - 90-day rolling fold generator
+  - `_render_combined_summary()` - Beautiful unified dashboard output
+
+**Modified:**
+- `src/afml_system/backtest/__init__.py` - Export combined backtest functions
+- `src/afml_system/core/cli.py` - Add --combo, --wf, and --strict-dates flags
+  - `--combo` flag for combined backtest mode
+  - `--wf` parameter for walk-forward end date (MM-DD-YYYY)
+  - `--strict-dates` flag for strict date validation (no auto-adjustment)
+  - Updated help text and examples
+
+**Features:**
+- Non-interactive auto-adjustment for overlapping windows (default)
+- 365-day standard backtest window (first year after training)
+- 90-day walk-forward fold size (anchored training)
+- Deterministic and reproducible results
+- Clean unified dashboard with both standard and walk-forward metrics
+- Optional strict mode to fail on overlaps instead of auto-adjusting
+
+**Usage:**
+```bash
+# Combined backtest with auto-adjustment
+prado backtest QQQ --combo --start 01-01-2020 --end 12-31-2023 --wf 12-31-2025
+
+# Strict mode (fail on overlaps)
+prado backtest QQQ --combo --start 01-01-2020 --end 12-31-2023 --wf 12-31-2025 --strict-dates
+```
+
+**Window Logic:**
+- Training: `--start` to `--end` (e.g., 2020-2023)
+- Standard OOS: 365 days after training end (e.g., 2024)
+- Walk-Forward: Training end to `--wf` in 90-day folds
+- Auto-adjustment: If `--wf` overlaps training, extends to `training_end + 365 days`
+
+**Output Dashboard:**
+- Training window display
+- Standard backtest metrics (return, Sharpe, Sortino, max DD, trades)
+- Walk-forward metrics (mean Sharpe, consistency %, worst DD, folds)
+- Auto-adjustment notifications (if applied)
+- Validation notes
+
+**Impact:**
+- Eliminates need to run standard and walk-forward separately
+- Ensures consistent date handling across both backtest types
+- Prevents user error with automatic overlap detection
+- Maintains full backward compatibility with existing backtest modes
+- No placeholder confusion - uses actual backtest engine outputs
+
+**Tested:**
+- Combined backtest executes without errors
+- Date windows calculated correctly (9 folds for 2024-2025 period)
+- Both standard and walk-forward engines run and display actual results
+- Config properly includes symbol parameter
+- Auto-adjustment logic works as expected
+
+---
 
 ### [3.3.0] - 2025-01-19 - Custom Date Range Support for Backtests
 

@@ -64,6 +64,10 @@ from .reporting import (
     BacktestReportBuilder,
 )
 
+from .combined_backtest import (
+    evo_backtest_combined,
+)
+
 __all__ = [
     # Main Engine
     'BacktestEngine',
@@ -77,6 +81,7 @@ __all__ = [
     'evo_backtest_mc2',
     'evo_backtest_unified_adaptive',  # BUILDER PROMPT FINAL
     'evo_backtest_comprehensive',
+    'evo_backtest_combined',  # Combined standard + walk-forward
     # Specialized Engines
     'WalkForwardEngine',
     'CrisisStressEngine',
