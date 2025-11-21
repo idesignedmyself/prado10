@@ -72,8 +72,8 @@ class CombinedBacktestResult:
 
 
 def _parse_date(date_str: str) -> datetime.date:
-    """Parse MM-DD-YYYY date string to date object."""
-    return datetime.datetime.strptime(date_str, '%m-%d-%Y').date()
+    """Parse YYYY-MM-DD date string to date object."""
+    return datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
 
 
 def _validate_and_adjust_windows(

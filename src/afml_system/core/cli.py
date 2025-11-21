@@ -220,53 +220,58 @@ def train(
 @app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def backtest(
     ctx: typer.Context,
-    combo: bool = typer.Option(False, "--combo", help="Run combined standard + walk-forward backtest"),
-    standard: bool = typer.Option(False, "--standard", help="Run standard backtest"),
-    walk_forward: bool = typer.Option(False, "--walk-forward", help="Run walk-forward backtest"),
-    crisis: bool = typer.Option(False, "--crisis", help="Run crisis period backtest"),
-    monte_carlo: Optional[int] = typer.Option(None, "--monte-carlo", help="Run Monte Carlo simulation (specify iterations)"),
-    mc2: Optional[int] = typer.Option(None, "--mc2", help="Run MC2 robustness tests (specify iterations)"),
-    adaptive: bool = typer.Option(False, "--adaptive", help="Run unified adaptive backtest (AR+X2+Y2+CR2)"),
     seed: int = typer.Option(42, "--seed", help="Random seed for determinism"),
-    start: Optional[str] = typer.Option(None, "--start", help="Start date (MM-DD-YYYY) for training start or standard/WF start"),
-    end: Optional[str] = typer.Option(None, "--end", help="End date (MM-DD-YYYY) for training end or standard/WF end"),
-    wf: Optional[str] = typer.Option(None, "--wf", help="Walk-forward end date (MM-DD-YYYY). Required with --combo"),
     strict_dates: bool = typer.Option(False, "--strict-dates", help="Fail on date overlaps instead of auto-adjusting")
 ):
     """
     Run backtest on PRADO9_EVO strategy.
 
     Usage:
-        prado backtest SYMBOL [options]
+        prado backtest SYMBOL MODE [dates]
 
     Examples:
-        prado backtest QQQ --standard
-        prado backtest SPY --walk-forward
-        prado backtest QQQ --crisis
-        prado backtest SPY --monte-carlo 10000
-        prado backtest QQQ --mc2 1000
-        prado backtest QQQ --standard --start 01-01-2020 --end 12-31-2023
-        prado backtest QQQ --walk-forward --start 01-01-2023 --end 12-31-2025
-        prado backtest QQQ --combo --start 01-01-2020 --end 12-31-2023 --wf 12-31-2025
+        prado backtest QQQ standard
+        prado backtest SPY walk-forward
+        prado backtest QQQ crisis
+        prado backtest SPY monte-carlo 10000
+        prado backtest QQQ mc2 1000
+        prado backtest QQQ standard start 01 01 2020 end 12 31 2023
+        prado backtest QQQ walk-forward start 01 01 2023 end 12 31 2025
+        prado backtest QQQ combo start 01 01 2020 end 12 31 2023 wf 12 31 2025
     """
+    from .date_parser import parse_backtest_args
+
     args = ctx.args
 
-    if len(args) < 1:
-        console.print("[red]Error:[/red] Symbol required")
-        console.print("\nUsage: prado backtest SYMBOL [options]")
-        console.print("Example: prado backtest QQQ --standard")
+    if len(args) < 2:
+        console.print("[red]Error:[/red] Symbol and mode required")
+        console.print("\nUsage: prado backtest SYMBOL MODE [dates]")
+        console.print("Example: prado backtest QQQ standard")
+        console.print("         prado backtest QQQ combo start 01 01 2020 end 12 31 2023 wf 12 31 2025")
         raise typer.Exit(code=1)
 
-    symbol = args[0].upper()
+    # Parse arguments
+    try:
+        parsed = parse_backtest_args(args)
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+
+    symbol = parsed['symbol']
+    mode = parsed['mode']
+    start_date = parsed['start_date']
+    end_date = parsed['end_date']
+    wf_date = parsed['wf_date']
+    iterations = parsed['iterations']
 
     # Seed for determinism
     _seed_all(seed)
 
     # Handle combined backtest separately (early exit)
-    if combo:
-        if not (start and end and wf):
-            console.print("[red]Error:[/red] --combo requires --start, --end, and --wf")
-            console.print("\nExample: prado backtest QQQ --combo --start 01-01-2020 --end 12-31-2023 --wf 12-31-2025")
+    if mode == 'combo':
+        if not (start_date and end_date and wf_date):
+            console.print("[red]Error:[/red] combo mode requires start, end, and wf dates")
+            console.print("\nExample: prado backtest QQQ combo start 01 01 2020 end 12 31 2023 wf 12 31 2025")
             raise typer.Exit(code=1)
 
         # Import combined backtest
@@ -301,9 +306,9 @@ def backtest(
         result = evo_backtest_combined(
             symbol=symbol,
             data=data,
-            start=start,
-            end=end,
-            wf=wf,
+            start=start_date,
+            end=end_date,
+            wf=wf_date,
             strict=strict_dates,
             config=config
         )
@@ -311,28 +316,23 @@ def backtest(
         console.print("\n[green]✅ Combined Backtest Complete![/green]\n")
         return
 
-    # Determine backtest type
-    if adaptive:
+    # Determine backtest type from mode
+    backtest_mode = mode.replace('-', '_')  # normalize walk-forward -> walk_forward
+
+    if mode == 'adaptive':
         backtest_type = "Unified Adaptive Backtest (AR+X2+Y2+CR2)"
-        backtest_mode = "adaptive"
-    elif standard:
+    elif mode == 'standard':
         backtest_type = "Standard Backtest"
-        backtest_mode = "standard"
-    elif walk_forward:
+    elif mode == 'walk-forward':
         backtest_type = "Walk-Forward Backtest"
-        backtest_mode = "walk_forward"
-    elif crisis:
+    elif mode == 'crisis':
         backtest_type = "Crisis Period Backtest"
-        backtest_mode = "crisis"
-    elif monte_carlo:
-        backtest_type = f"Monte Carlo Simulation ({monte_carlo:,} iterations)"
-        backtest_mode = "monte_carlo"
-    elif mc2:
-        backtest_type = f"MC2 Robustness Tests ({mc2:,} iterations)"
-        backtest_mode = "mc2"
+    elif mode == 'monte-carlo':
+        backtest_type = f"Monte Carlo Simulation ({iterations:,} iterations)"
+    elif mode == 'mc2':
+        backtest_type = f"MC2 Robustness Tests ({iterations:,} iterations)"
     else:
-        backtest_type = "Standard Backtest (default)"
-        backtest_mode = "standard"
+        backtest_type = f"{mode.title()} Backtest"
 
     # Display configuration
     console.print("\n[bold cyan]📊 PRADO9_EVO Backtest Engine[/bold cyan]")
@@ -341,8 +341,8 @@ def backtest(
         f"[green]Type:[/green] {backtest_type}",
         f"[green]Seed:[/green] {seed}"
     ]
-    if start or end:
-        date_range = f"{start or 'auto'} to {end or 'today'}"
+    if start_date or end_date:
+        date_range = f"{start_date or 'auto'} to {end_date or 'today'}"
         config_lines.append(f"[green]Date Range:[/green] {date_range}")
 
     console.print(Panel.fit(
@@ -373,25 +373,26 @@ def backtest(
         from datetime import datetime, timedelta
 
         # Parse custom dates or use defaults
+        # Note: start_date and end_date are already in YYYY-MM-DD format from parse_backtest_args
         try:
-            if end:
-                end_date = datetime.strptime(end, '%m-%d-%Y')
+            if end_date:
+                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
             else:
-                end_date = datetime.now()
+                end_dt = datetime.now()
 
-            if start:
-                start_date = datetime.strptime(start, '%m-%d-%Y')
+            if start_date:
+                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
             else:
-                start_date = end_date - timedelta(days=5*365)
+                start_dt = end_dt - timedelta(days=5*365)
         except ValueError as e:
-            console.print(f"[red]Error:[/red] Invalid date format. Use MM-DD-YYYY (e.g., 01-15-2020)")
+            console.print(f"[red]Error:[/red] Invalid date format")
             console.print(f"[red]Details:[/red] {str(e)}")
             raise typer.Exit(code=1)
 
         data = yf.download(
             symbol,
-            start=start_date.strftime('%Y-%m-%d'),
-            end=end_date.strftime('%Y-%m-%d'),
+            start=start_dt.strftime('%Y-%m-%d'),
+            end=end_dt.strftime('%Y-%m-%d'),
             progress=False
         )
 
@@ -408,7 +409,7 @@ def backtest(
             # Normal columns: 'Close' -> 'close'
             data.columns = [str(col).lower() for col in cols]
 
-        console.print(f"[green]✓[/green] Loaded {len(data)} bars ({start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')})")
+        console.print(f"[green]✓[/green] Loaded {len(data)} bars ({start_dt.strftime('%Y-%m-%d')} to {end_dt.strftime('%Y-%m-%d')})")
 
         # Create config with seed
         from afml_system.backtest import BacktestConfig
@@ -437,9 +438,9 @@ def backtest(
             elif backtest_mode == "crisis":
                 response = evo_backtest_crisis(symbol, data, config=config)
             elif backtest_mode == "monte_carlo":
-                response = evo_backtest_monte_carlo(symbol, data, n_sim=monte_carlo, config=config)
+                response = evo_backtest_monte_carlo(symbol, data, n_sim=iterations, config=config)
             elif backtest_mode == "mc2":
-                response = evo_backtest_mc2(symbol, data, n_sim=mc2, config=config)
+                response = evo_backtest_mc2(symbol, data, n_sim=iterations, config=config)
 
             progress.update(task, completed=True)
 
