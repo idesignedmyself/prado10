@@ -26,7 +26,7 @@ from typing import Optional, Tuple
 from scipy import stats
 
 
-class FeatureBuilderV2:
+class FeatureBuilderV2Optimized:
     """
     Optimized feature builder with 42 ML features.
 
@@ -65,7 +65,7 @@ class FeatureBuilderV2:
         delta = prices.diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        rs = FeatureBuilderV2._safe_division(gain, loss, fill_value=1.0)
+        rs = FeatureBuilderV2Optimized._safe_division(gain, loss, fill_value=1.0)
         rsi = 100 - (100 / (1 + rs))
         return rsi
 
@@ -74,7 +74,7 @@ class FeatureBuilderV2:
         """Compute Stochastic Oscillator %K"""
         lowest_low = low.rolling(window=period).min()
         highest_high = high.rolling(window=period).max()
-        stoch_k = FeatureBuilderV2._safe_division(
+        stoch_k = FeatureBuilderV2Optimized._safe_division(
             (close - lowest_low),
             (highest_high - lowest_low),
             fill_value=50.0
@@ -167,7 +167,7 @@ class FeatureBuilderV2:
         """
         upside_vol = returns.where(returns > 0, 0).rolling(window).std()
         downside_vol = returns.where(returns < 0, 0).rolling(window).std()
-        vol_asymmetry = FeatureBuilderV2._safe_division(
+        vol_asymmetry = FeatureBuilderV2Optimized._safe_division(
             downside_vol, upside_vol, fill_value=1.0
         )
         return vol_asymmetry
@@ -218,31 +218,31 @@ class FeatureBuilderV2:
         # Volatility structure (3)
         out["vol_20"] = out["ret_1d"].rolling(20).std()
         out["vol_60"] = out["ret_1d"].rolling(60).std()
-        out["vol_ratio"] = FeatureBuilderV2._safe_division(out["vol_20"], out["vol_60"], fill_value=1.0)
+        out["vol_ratio"] = FeatureBuilderV2Optimized._safe_division(out["vol_20"], out["vol_60"], fill_value=1.0)
 
         # Trend structure (3)
         ma50 = df["close"].rolling(50).mean()
         ma200 = df["close"].rolling(200).mean()
-        out["ma_ratio"] = FeatureBuilderV2._safe_division(ma50, ma200, fill_value=1.0) - 1.0
-        out["dist_ma_20"] = FeatureBuilderV2._safe_division(df["close"], df["close"].rolling(20).mean(), fill_value=1.0) - 1
-        out["dist_ma_50"] = FeatureBuilderV2._safe_division(df["close"], ma50, fill_value=1.0) - 1
+        out["ma_ratio"] = FeatureBuilderV2Optimized._safe_division(ma50, ma200, fill_value=1.0) - 1.0
+        out["dist_ma_20"] = FeatureBuilderV2Optimized._safe_division(df["close"], df["close"].rolling(20).mean(), fill_value=1.0) - 1
+        out["dist_ma_50"] = FeatureBuilderV2Optimized._safe_division(df["close"], ma50, fill_value=1.0) - 1
 
         # Momentum Features (4)
-        out["rsi_14"] = FeatureBuilderV2._compute_rsi(df["close"], period=14)
-        out["roc_10"] = FeatureBuilderV2._safe_division(
+        out["rsi_14"] = FeatureBuilderV2Optimized._compute_rsi(df["close"], period=14)
+        out["roc_10"] = FeatureBuilderV2Optimized._safe_division(
             df["close"] - df["close"].shift(10),
             df["close"].shift(10),
             fill_value=0.0
         ) * 100
 
         mom_20 = df["close"].diff(20)
-        out["momentum_zscore_20"] = FeatureBuilderV2._safe_division(
+        out["momentum_zscore_20"] = FeatureBuilderV2Optimized._safe_division(
             mom_20 - mom_20.rolling(60).mean(),
             mom_20.rolling(60).std(),
             fill_value=0.0
         )
 
-        out["stochastic_k"] = FeatureBuilderV2._compute_stochastic(
+        out["stochastic_k"] = FeatureBuilderV2Optimized._compute_stochastic(
             df["high"], df["low"], df["close"], period=14
         )
 
@@ -255,21 +255,21 @@ class FeatureBuilderV2:
 
         bb_ma = df["close"].rolling(20).mean()
         bb_std = df["close"].rolling(20).std()
-        out["bb_width_20"] = FeatureBuilderV2._safe_division(bb_std * 2, bb_ma, fill_value=0.0)
+        out["bb_width_20"] = FeatureBuilderV2Optimized._safe_division(bb_std * 2, bb_ma, fill_value=0.0)
 
         out["hv_10"] = np.log(df["close"] / df["close"].shift(1)).rolling(10).std() * np.sqrt(252)
         out["vol_change_5"] = out["vol_20"] - out["vol_20"].shift(5)
 
         # Trend/Slope Features (4)
-        out["trend_slope_20"] = FeatureBuilderV2._compute_slope(df["close"], 20)
-        out["trend_slope_50"] = FeatureBuilderV2._compute_slope(df["close"], 50)
+        out["trend_slope_20"] = FeatureBuilderV2Optimized._compute_slope(df["close"], 20)
+        out["trend_slope_50"] = FeatureBuilderV2Optimized._compute_slope(df["close"], 50)
 
-        macd_line, macd_hist = FeatureBuilderV2._compute_macd(df["close"])
+        macd_line, macd_hist = FeatureBuilderV2Optimized._compute_macd(df["close"])
         out["macd_line"] = macd_line
         out["macd_hist"] = macd_hist
 
         # Volume Features (3)
-        out["vol_rel_20"] = FeatureBuilderV2._safe_division(
+        out["vol_rel_20"] = FeatureBuilderV2Optimized._safe_division(
             df["volume"],
             df["volume"].rolling(20).mean(),
             fill_value=1.0
@@ -277,9 +277,9 @@ class FeatureBuilderV2:
 
         vol_ma_5 = df["volume"].rolling(5).mean()
         vol_ma_20 = df["volume"].rolling(20).mean()
-        out["vol_accel_5"] = FeatureBuilderV2._safe_division(vol_ma_5, vol_ma_20, fill_value=1.0) - 1
+        out["vol_accel_5"] = FeatureBuilderV2Optimized._safe_division(vol_ma_5, vol_ma_20, fill_value=1.0) - 1
 
-        obv = FeatureBuilderV2._compute_obv(df["close"], df["volume"])
+        obv = FeatureBuilderV2Optimized._compute_obv(df["close"], df["volume"])
         out["obv_change"] = obv.pct_change(10).fillna(0)
 
         # =====================================================================
@@ -304,29 +304,29 @@ class FeatureBuilderV2:
         # --- Advanced Volatility Structure (4) ---
 
         # Parkinson volatility (range-based, more efficient)
-        out["parkinson_vol_20"] = FeatureBuilderV2._compute_parkinson_volatility(
+        out["parkinson_vol_20"] = FeatureBuilderV2Optimized._compute_parkinson_volatility(
             df["high"], df["low"], window=20
         )
 
         # Garman-Klass volatility (OHLC-based, more robust)
-        out["garman_klass_vol_20"] = FeatureBuilderV2._compute_garman_klass_volatility(
+        out["garman_klass_vol_20"] = FeatureBuilderV2Optimized._compute_garman_klass_volatility(
             df["open"], df["high"], df["low"], df["close"], window=20
         )
 
         # Rogers-Satchell volatility (handles trends better)
-        out["rogers_satchell_vol_20"] = FeatureBuilderV2._compute_rogers_satchell_volatility(
+        out["rogers_satchell_vol_20"] = FeatureBuilderV2Optimized._compute_rogers_satchell_volatility(
             df["open"], df["high"], df["low"], df["close"], window=20
         )
 
         # Volatility asymmetry (downside vs upside volatility)
-        out["vol_asymmetry_20"] = FeatureBuilderV2._compute_volatility_asymmetry(
+        out["vol_asymmetry_20"] = FeatureBuilderV2Optimized._compute_volatility_asymmetry(
             out["ret_1d"], window=20
         )
 
         # --- Microstructure Features (3) ---
 
         # High-Low spread normalized by ATR (liquidity/efficiency proxy)
-        out["hl_spread_norm_20"] = FeatureBuilderV2._safe_division(
+        out["hl_spread_norm_20"] = FeatureBuilderV2Optimized._safe_division(
             (df["high"] - df["low"]).rolling(20).mean(),
             out["atr_14"],
             fill_value=1.0
@@ -337,7 +337,7 @@ class FeatureBuilderV2:
         out["intraday_range_vol_20"] = daily_range.rolling(20).std()
 
         # Close position in range (0=low, 1=high) - buying/selling pressure
-        out["close_position_20"] = FeatureBuilderV2._safe_division(
+        out["close_position_20"] = FeatureBuilderV2Optimized._safe_division(
             df["close"] - df["low"].rolling(20).min(),
             df["high"].rolling(20).max() - df["low"].rolling(20).min(),
             fill_value=0.5
@@ -360,7 +360,7 @@ class FeatureBuilderV2:
 
         # Volatility regime ratio (current vol vs long-term regime)
         vol_120 = out["ret_1d"].rolling(120).std()
-        out["vol_regime_ratio"] = FeatureBuilderV2._safe_division(
+        out["vol_regime_ratio"] = FeatureBuilderV2Optimized._safe_division(
             out["vol_20"], vol_120, fill_value=1.0
         )
 
@@ -397,7 +397,7 @@ class FeatureBuilderV2:
             Feature DataFrame
         """
         if use_v2:
-            return FeatureBuilderV2.build_features_v2(df)
+            return FeatureBuilderV2Optimized.build_features_v2(df)
         else:
             # Fall back to original feature_builder.py logic
             from .feature_builder import FeatureBuilder
@@ -407,7 +407,7 @@ class FeatureBuilderV2:
 # Convenience function for backward compatibility
 def build_features_v2_optimized(df: pd.DataFrame) -> pd.DataFrame:
     """Build optimized v2 features (42 features)"""
-    return FeatureBuilderV2.build_features_v2(df)
+    return FeatureBuilderV2Optimized.build_features_v2(df)
 
 
-__all__ = ['FeatureBuilderV2', 'build_features_v2_optimized']
+__all__ = ['FeatureBuilderV2Optimized', 'build_features_v2_optimized']

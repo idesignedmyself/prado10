@@ -9,14 +9,13 @@ from afml_system.backtest import BacktestConfig, BacktestEngine
 config = BacktestConfig(
     symbol='QQQ',
     enable_ml_fusion=True,
-    use_ml_features_v2=True,  # Enable V2
-    seed=42
+    use_ml_features_v2=True  # Enable V2
 )
 
-print("\n📊 Running ML V2 Backtest (24 features)...\n")
+print("\n📊 Running ML V2 Backtest (42 features - Optimized)...\n")
 
 engine = BacktestEngine(config)
-results = engine.run()
+results = engine.run_standard()
 
 # Print results
 print("\n" + "="*50)

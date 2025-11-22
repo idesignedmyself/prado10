@@ -1550,6 +1550,69 @@ def optimize_cli(symbol: str):
 
 
 # ============================================================================
+# ML ALLOCATOR DIAGNOSTIC SWEEP
+# ============================================================================
+
+@app.command(name="diagnostic-ml-allocator", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def diagnostic_ml_allocator(ctx: typer.Context):
+    """
+    Run comprehensive ML + Allocator Diagnostic Sweep.
+
+    Tests 10 critical pathways to identify bottlenecks, measure ML influence,
+    and detect suppression mechanisms.
+
+    Usage:
+        prado diagnostic-ml-allocator SYMBOL start MM DD YYYY end MM DD YYYY
+
+    Example:
+        prado diagnostic-ml-allocator QQQ start 01 01 2020 end 12 31 2024
+    """
+    from afml_system.diagnostics.ml_allocator_diagnostic import run_diagnostic_sweep
+
+    args = ctx.args
+
+    if len(args) < 8:
+        console.print("[red]Error:[/red] Missing required arguments")
+        console.print("\nUsage: prado diagnostic-ml-allocator SYMBOL start MM DD YYYY end MM DD YYYY")
+        console.print("Example: prado diagnostic-ml-allocator QQQ start 01 01 2020 end 12 31 2024")
+        raise typer.Exit(code=1)
+
+    # Extract symbol
+    symbol = args[0].upper()
+
+    try:
+        # Parse dates
+        start_date, end_date = parse_date_args(args[1:])
+        validate_date_range(start_date, end_date)
+
+        # Display configuration
+        console.print("\n[bold cyan]🔍 PRADO ML + Allocator Diagnostic Sweep[/bold cyan]")
+        console.print(Panel.fit(
+            f"[green]Symbol:[/green] {symbol}\n"
+            f"[green]Start:[/green] {start_date}\n"
+            f"[green]End:[/green] {end_date}",
+            title="Configuration",
+            border_style="cyan"
+        ))
+
+        # Run diagnostic sweep
+        report = run_diagnostic_sweep(symbol, start_date, end_date)
+
+        console.print("\n[bold green]✅ Diagnostic Sweep Complete![/bold green]")
+        console.print(f"\n📊 Results Summary:")
+        console.print(f"   Tests Passed:  [green]{report.tests_passed}[/green]")
+        console.print(f"   Tests Warning: [yellow]{report.tests_warning}[/yellow]")
+        console.print(f"   Tests Failed:  [red]{report.tests_failed}[/red]")
+        console.print(f"   ML Influence:  {report.overall_ml_influence:.1f}%")
+
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        import traceback
+        console.print(traceback.format_exc())
+        raise typer.Exit(code=1)
+
+
+# ============================================================================
 # HELP COMMAND
 # ============================================================================
 
