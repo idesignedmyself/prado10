@@ -214,6 +214,564 @@ def train(
 
 
 # ============================================================================
+# TRAIN-ML COMMAND - ML HORIZON + REGIME TRAINING
+# ============================================================================
+
+@app.command(name="train-ml", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def train_ml(
+    ctx: typer.Context,
+    seed: int = typer.Option(42, "--seed", help="Random seed for determinism")
+):
+    """
+    Train ML Horizon + Regime models for hybrid fusion.
+
+    Usage:
+        prado train-ml SYMBOL start MM DD YYYY end MM DD YYYY
+
+    Example:
+        prado train-ml QQQ start 01 01 2020 end 12 31 2024
+    """
+    args = ctx.args
+
+    if len(args) < 8:
+        console.print("[red]Error:[/red] Missing required arguments")
+        console.print("\nUsage: prado train-ml SYMBOL start MM DD YYYY end MM DD YYYY")
+        console.print("Example: prado train-ml QQQ start 01 01 2020 end 12 31 2024")
+        raise typer.Exit(code=1)
+
+    # Extract symbol
+    symbol = args[0].upper()
+
+    try:
+        # Parse dates
+        start_date, end_date = parse_date_args(args[1:])
+        validate_date_range(start_date, end_date)
+
+        # Seed for determinism
+        _seed_all(seed)
+
+        # Display configuration
+        console.print("\n[bold cyan]🤖 PRADO ML Training Pipeline[/bold cyan]")
+        console.print(Panel.fit(
+            f"[green]Symbol:[/green] {symbol}\n"
+            f"[green]Start:[/green] {start_date}\n"
+            f"[green]End:[/green] {end_date}\n"
+            f"[green]Mode:[/green] ML Horizon + Regime Training\n"
+            f"[green]Seed:[/green] {seed}",
+            title="Configuration",
+            border_style="cyan"
+        ))
+
+        # Import ML modules
+        console.print("\n[yellow]⚡ Loading ML modules...[/yellow]")
+        from afml_system.ml import HorizonModel, RegimeHorizonModel, HORIZONS, REGIMES
+        from afml_system.regime import RegimeDetector
+
+        console.print("[green]✓[/green] ML modules loaded")
+
+        # Step 1: Load data
+        console.print("\n[bold]Step 1: Data Loading[/bold]")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task(f"Fetching {symbol} data from {start_date} to {end_date}...", total=None)
+
+            import yfinance as yf
+            import pandas as pd
+
+            data = yf.download(symbol, start=start_date, end=end_date, progress=False)
+
+            if data.empty:
+                console.print(f"[red]Error:[/red] No data retrieved for {symbol}")
+                raise typer.Exit(code=1)
+
+            # Fix yfinance MultiIndex columns
+            cols = data.columns
+            if isinstance(cols[0], tuple):
+                data.columns = [str(col[0]).lower() for col in cols]
+            else:
+                data.columns = [str(col).lower() for col in cols]
+
+            progress.update(task, completed=True)
+
+        console.print(f"[green]✓[/green] Loaded {len(data)} bars")
+
+        # Step 2: Detect regimes
+        console.print("\n[bold]Step 2: Regime Detection[/bold]")
+        detector = RegimeDetector()
+        regime_series = detector.detect_regime_series(data)
+        console.print(f"[green]✓[/green] Regimes detected")
+
+        # Display regime distribution
+        regime_counts = regime_series.value_counts()
+        console.print("\n[cyan]Regime Distribution:[/cyan]")
+        for regime in REGIMES:
+            count = regime_counts.get(regime, 0)
+            pct = (count / len(regime_series)) * 100 if len(regime_series) > 0 else 0
+            console.print(f"  {regime:15s}: {count:5d} bars ({pct:5.1f}%)")
+
+        # Step 3: Train Horizon Models
+        console.print("\n[bold]Step 3: Training Horizon Models[/bold]")
+        for horizon_key in HORIZONS.keys():
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console
+            ) as progress:
+                task = progress.add_task(f"Training {horizon_key} model...", total=None)
+
+                model = HorizonModel(symbol=symbol, horizon_key=horizon_key)
+                model.train(data)
+
+                progress.update(task, completed=True)
+
+            console.print(f"[green]✓[/green] {horizon_key} model trained")
+
+        # Step 4: Train Regime-Specific Models
+        console.print("\n[bold]Step 4: Training Regime-Specific Models[/bold]")
+        for horizon_key in HORIZONS.keys():
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console
+            ) as progress:
+                task = progress.add_task(f"Training regime models for {horizon_key}...", total=None)
+
+                regime_model = RegimeHorizonModel(symbol=symbol, horizon_key=horizon_key)
+                regime_model.train_all(data, regime_series)
+
+                progress.update(task, completed=True)
+
+            console.print(f"[green]✓[/green] Regime models trained for {horizon_key}")
+
+        # Step 5: Model persistence
+        console.print("\n[bold]Step 5: Model Persistence[/bold]")
+        save_dir = Path('.prado') / 'models' / symbol.lower() / 'ml_horizons'
+        console.print(f"[green]✓[/green] Models saved to: {save_dir}")
+
+        # Success summary
+        console.print("\n[bold green]✅ ML Training Complete![/bold green]")
+        console.print(f"\nTrained Models:")
+        console.print(f"  • {len(HORIZONS)} Horizon Models (1d, 3d, 5d, 10d)")
+        console.print(f"  • {len(HORIZONS) * len(REGIMES)} Regime-Specific Models")
+        console.print(f"  • Total: {len(HORIZONS) * (1 + len(REGIMES))} XGBoost models")
+
+        console.print(f"\nYou can now:")
+        console.print(f"  • Run backtest with ML: [cyan]prado backtest {symbol} --standard --enable-ml[/cyan]")
+        console.print(f"  • Get ML predictions: [cyan]prado predict {symbol}[/cyan]")
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        import traceback
+        console.print(traceback.format_exc())
+        raise typer.Exit(code=1)
+
+
+@app.command(name="train-ml-v2", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def train_ml_v2(
+    ctx: typer.Context,
+    seed: int = typer.Option(42, "--seed", help="Random seed for determinism")
+):
+    """
+    Train ML V2 models (24 features) for enhanced horizon + regime predictions.
+
+    Usage:
+        prado train-ml-v2 SYMBOL start MM DD YYYY end MM DD YYYY
+
+    Example:
+        prado train-ml-v2 QQQ start 01 01 2020 end 12 31 2024
+    """
+    args = ctx.args
+
+    if len(args) < 8:
+        console.print("[red]Error:[/red] Missing required arguments")
+        console.print("\nUsage: prado train-ml-v2 SYMBOL start MM DD YYYY end MM DD YYYY")
+        console.print("Example: prado train-ml-v2 QQQ start 01 01 2020 end 12 31 2024")
+        raise typer.Exit(code=1)
+
+    # Extract symbol
+    symbol = args[0].upper()
+
+    try:
+        # Parse dates
+        start_date, end_date = parse_date_args(args[1:])
+        validate_date_range(start_date, end_date)
+
+        # Seed for determinism
+        _seed_all(seed)
+
+        # Display configuration
+        console.print("\n[bold cyan]🤖 PRADO ML V2 Training Pipeline[/bold cyan]")
+        console.print(Panel.fit(
+            f"[green]Symbol:[/green] {symbol}\n"
+            f"[green]Start:[/green] {start_date}\n"
+            f"[green]End:[/green] {end_date}\n"
+            f"[green]Mode:[/green] ML V2 (24 Features)\n"
+            f"[green]Features:[/green] 9 original + 15 new = 24 total\n"
+            f"[green]Seed:[/green] {seed}",
+            title="Configuration",
+            border_style="cyan"
+        ))
+
+        # Import ML V2 modules
+        console.print("\n[yellow]⚡ Loading ML V2 modules...[/yellow]")
+        from afml_system.ml.feature_builder_v2 import FeatureBuilderV2
+        from afml_system.ml.target_builder_v2 import TargetBuilderV2
+        import yfinance as yf
+        import pandas as pd
+        import numpy as np
+        from xgboost import XGBClassifier
+        import joblib
+        from pathlib import Path
+
+        console.print("[green]✓[/green] ML V2 modules loaded")
+
+        # Step 1: Load data
+        console.print("\n[bold]Step 1: Data Loading[/bold]")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task(f"Fetching {symbol} data...", total=None)
+
+            data = yf.download(symbol, start=start_date, end=end_date, progress=False)
+
+            if data.empty:
+                console.print(f"[red]Error:[/red] No data retrieved for {symbol}")
+                raise typer.Exit(code=1)
+
+            # Fix yfinance MultiIndex columns
+            cols = data.columns
+            if isinstance(cols[0], tuple):
+                data.columns = [str(col[0]).lower() for col in cols]
+            else:
+                data.columns = [str(col).lower() for col in cols]
+
+            progress.update(task, completed=True)
+
+        console.print(f"[green]✓[/green] Loaded {len(data)} bars")
+
+        # Step 2: Build V2 Features (24 features)
+        console.print("\n[bold]Step 2: Building V2 Features (24 features)[/bold]")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Building features...", total=None)
+            X = FeatureBuilderV2.build_features_v2(data)
+            progress.update(task, completed=True)
+
+        console.print(f"[green]✓[/green] Built {X.shape[1]} features × {X.shape[0]} samples")
+
+        # Step 3: Build Labels
+        console.print("\n[bold]Step 3: Building Horizon & Regime Labels[/bold]")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Building labels...", total=None)
+            horizon_labels = TargetBuilderV2.build_horizon_labels(data)
+            regime_labels = TargetBuilderV2.build_regime_labels(data)
+            progress.update(task, completed=True)
+
+        console.print(f"[green]✓[/green] Horizon labels: {horizon_labels.shape}")
+        console.print(f"[green]✓[/green] Regime labels: {regime_labels.shape}")
+
+        # Align features and labels
+        common_idx = X.index.intersection(horizon_labels.index).intersection(regime_labels.index)
+        X = X.loc[common_idx]
+        horizon_labels = horizon_labels.loc[common_idx]
+        regime_labels = regime_labels.loc[common_idx]
+
+        console.print(f"[green]✓[/green] Aligned dataset: {len(X)} samples")
+
+        # Create save directory (local to app, not home directory)
+        save_dir = Path('.prado') / 'models' / symbol.lower() / 'ml_v2'
+        save_dir.mkdir(parents=True, exist_ok=True)
+
+        # Step 4: Train Horizon Models
+        console.print("\n[bold]Step 4: Training Horizon Models (4 models)[/bold]")
+        horizon_stats = []
+        for horizon in ['1d', '3d', '5d', '10d']:
+            with Progress(
+                SpinnerColumn(),
+                TextColumn("[progress.description]{task.description}"),
+                console=console
+            ) as progress:
+                task = progress.add_task(f"Training {horizon} model...", total=None)
+
+                y = TargetBuilderV2.get_label_for_horizon(horizon_labels, horizon)
+
+                model = XGBClassifier(
+                    n_estimators=120,
+                    max_depth=4,
+                    learning_rate=0.05,
+                    subsample=0.8,
+                    colsample_bytree=0.8,
+                    random_state=seed,
+                    eval_metric='logloss'
+                )
+
+                model.fit(X, y)
+
+                # Save model
+                model_path = save_dir / f"ml_horizon_{horizon}_v2.pkl"
+                joblib.dump(model, model_path)
+
+                progress.update(task, completed=True)
+
+            console.print(f"[green]✓[/green] {horizon} model trained")
+
+        # Step 5: Train Regime Models (20 models: 5 regimes × 4 horizons)
+        console.print("\n[bold]Step 5: Training Regime Models (20 models)[/bold]")
+        regimes = ['trend_up', 'trend_down', 'choppy', 'high_vol', 'low_vol']
+        regime_column = regime_labels['regime']
+
+        trained_count = 0
+        skipped_count = 0
+
+        for regime in regimes:
+            for horizon in ['1d', '3d', '5d', '10d']:
+                # Filter to regime
+                regime_mask = regime_column == regime
+                X_regime = X[regime_mask]
+                y_horizon = TargetBuilderV2.get_label_for_horizon(horizon_labels, horizon)
+                y_regime = y_horizon[regime_mask]
+
+                if len(X_regime) < 100:
+                    console.print(f"[yellow]⚠[/yellow] Skipping {regime}×{horizon} - insufficient samples ({len(X_regime)})")
+                    skipped_count += 1
+                    continue
+
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    console=console
+                ) as progress:
+                    task = progress.add_task(f"Training {regime}×{horizon}...", total=None)
+
+                    model = XGBClassifier(
+                        n_estimators=100,
+                        max_depth=3,
+                        learning_rate=0.05,
+                        subsample=0.8,
+                        colsample_bytree=0.8,
+                        random_state=seed,
+                        eval_metric='logloss'
+                    )
+
+                    model.fit(X_regime, y_regime)
+
+                    # Save model
+                    model_path = save_dir / f"ml_regime_{regime}_{horizon}_v2.pkl"
+                    joblib.dump(model, model_path)
+
+                    progress.update(task, completed=True)
+
+                trained_count += 1
+
+        console.print(f"[green]✓[/green] Regime models: {trained_count} trained, {skipped_count} skipped")
+
+        # Step 6: Save metadata
+        console.print("\n[bold]Step 6: Saving Metadata[/bold]")
+        metadata = {
+            'symbol': symbol,
+            'start_date': start_date,
+            'end_date': end_date,
+            'samples': len(X),
+            'features': list(X.columns),
+            'num_features': X.shape[1],
+            'horizon_models': 4,
+            'regime_models': trained_count,
+            'total_models': 4 + trained_count
+        }
+
+        metadata_path = save_dir / 'training_metadata_v2.pkl'
+        joblib.dump(metadata, metadata_path)
+
+        console.print(f"[green]✓[/green] Metadata saved")
+
+        # Success summary
+        console.print("\n[bold green]✅ ML V2 Training Complete![/bold green]")
+        console.print(f"\nTrained Models:")
+        console.print(f"  • 4 Horizon Models (1d, 3d, 5d, 10d)")
+        console.print(f"  • {trained_count} Regime-Specific Models")
+        console.print(f"  • Total: {4 + trained_count} XGBoost models")
+        console.print(f"  • Features: 24 (9 original + 15 new)")
+        console.print(f"\nModels saved to: {save_dir}")
+
+        console.print(f"\nYou can now:")
+        console.print(f"  • Enable v2 in config: [cyan]use_ml_features_v2=True[/cyan]")
+        console.print(f"  • Models will auto-load from ml_v2 directory")
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        import traceback
+        console.print(traceback.format_exc())
+        raise typer.Exit(code=1)
+
+
+@app.command(name="ml-v2-diagnostic", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def ml_v2_diagnostic(ctx: typer.Context):
+    """
+    Run ML V2 diagnostic suite to validate trained models.
+
+    Usage:
+        prado ml-v2-diagnostic SYMBOL start MM DD YYYY end MM DD YYYY
+
+    Example:
+        prado ml-v2-diagnostic QQQ start 01 01 2020 end 12 31 2024
+    """
+    args = ctx.args
+
+    if len(args) < 8:
+        console.print("[red]Error:[/red] Missing required arguments")
+        console.print("\nUsage: prado ml-v2-diagnostic SYMBOL start MM DD YYYY end MM DD YYYY")
+        console.print("Example: prado ml-v2-diagnostic QQQ start 01 01 2020 end 12 31 2024")
+        raise typer.Exit(code=1)
+
+    # Extract symbol
+    symbol = args[0].upper()
+
+    try:
+        # Parse dates
+        start_date, end_date = parse_date_args(args[1:])
+        validate_date_range(start_date, end_date)
+
+        # Display configuration
+        console.print("\n[bold cyan]🔍 PRADO ML V2 Diagnostic Suite[/bold cyan]")
+        console.print(Panel.fit(
+            f"[green]Symbol:[/green] {symbol}\n"
+            f"[green]Start:[/green] {start_date}\n"
+            f"[green]End:[/green] {end_date}\n"
+            f"[green]Mode:[/green] ML V2 Validation",
+            title="Configuration",
+            border_style="cyan"
+        ))
+
+        # Import ML V2 diagnostic module
+        console.print("\n[yellow]⚡ Loading ML V2 diagnostic module...[/yellow]")
+        from afml_system.ml.ml_v2_diagnostic import MLV2Diagnostic
+        from afml_system.regime.regime_detector import RegimeDetector
+        import yfinance as yf
+
+        console.print("[green]✓[/green] ML V2 diagnostic module loaded")
+
+        # Step 1: Load data
+        console.print("\n[bold]Step 1: Data Loading[/bold]")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task(f"Fetching {symbol} data...", total=None)
+
+            data = yf.download(symbol, start=start_date, end=end_date, progress=False)
+
+            if data.empty:
+                console.print(f"[red]Error:[/red] No data retrieved for {symbol}")
+                raise typer.Exit(code=1)
+
+            # Fix yfinance MultiIndex columns
+            cols = data.columns
+            if isinstance(cols[0], tuple):
+                data.columns = [str(col[0]).lower() for col in cols]
+            else:
+                data.columns = [str(col).lower() for col in cols]
+
+            progress.update(task, completed=True)
+
+        console.print(f"[green]✓[/green] Loaded {len(data)} bars")
+
+        # Step 2: Detect regimes
+        console.print("\n[bold]Step 2: Regime Detection[/bold]")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console
+        ) as progress:
+            task = progress.add_task("Detecting regimes...", total=None)
+            detector = RegimeDetector()
+            regime_series = detector.detect_regime_series(data)
+            progress.update(task, completed=True)
+
+        console.print(f"[green]✓[/green] Regime detection complete")
+
+        # Step 3: Run diagnostic suite
+        console.print("\n[bold cyan]Running Diagnostic Tests...[/bold cyan]\n")
+
+        diagnostic = MLV2Diagnostic(symbol)
+        results = diagnostic.run_full_diagnostic(data, regime_series)
+
+        # Step 4: Save report
+        console.print("\n[bold]Saving Diagnostic Report...[/bold]")
+        report_path = diagnostic.save_report()
+
+        # Display summary
+        console.print("\n[bold green]✅ ML V2 Diagnostic Complete![/bold green]")
+
+        # Summary table
+        summary_table = Table(title="Diagnostic Summary", show_header=True, header_style="bold cyan")
+        summary_table.add_column("Test", style="cyan")
+        summary_table.add_column("Status", style="green")
+
+        test_names = [
+            "Feature Integrity",
+            "Target Integrity",
+            "Model Loading",
+            "Horizon Predictions",
+            "Regime Predictions",
+            "Confidence Distribution",
+            "V1/V2 Comparison",
+            "SHAP Explainability",
+            "Prediction Consistency"
+        ]
+
+        result_keys = [
+            'features', 'targets', 'model_loading', 'horizon_predictions',
+            'regime_predictions', 'confidence', 'v1_v2_comparison',
+            'shap', 'consistency'
+        ]
+
+        for name, key in zip(test_names, result_keys):
+            if key in results:
+                status = results[key].get('status', 'UNKNOWN')
+                if status == 'PASS':
+                    status_display = "✅ PASS"
+                elif status == 'ERROR':
+                    status_display = "❌ ERROR"
+                elif status in ['SKIPPED', 'UNAVAILABLE', 'NO_DATA', 'INSUFFICIENT_DATA']:
+                    status_display = f"⚠️ {status}"
+                else:
+                    status_display = status
+                summary_table.add_row(name, status_display)
+
+        console.print(summary_table)
+
+        console.print(f"\n[cyan]📄 Full report saved to:[/cyan] {report_path}")
+
+    except ValueError as e:
+        console.print(f"[red]Error:[/red] {e}")
+        raise typer.Exit(code=1)
+    except Exception as e:
+        console.print(f"[red]Error:[/red] {e}")
+        import traceback
+        console.print(traceback.format_exc())
+        raise typer.Exit(code=1)
+
+
+# ============================================================================
 # BACKTEST COMMAND - WIRE TO BACKTEST ENGINES
 # ============================================================================
 
@@ -227,7 +785,7 @@ def backtest(
     Run backtest on PRADO9_EVO strategy.
 
     Usage:
-        prado backtest SYMBOL MODE [dates]
+        prado backtest SYMBOL MODE [dates] [enable-ml] [enable-ml-explain] [use-ml-v2]
 
     Examples:
         prado backtest QQQ standard
@@ -238,6 +796,9 @@ def backtest(
         prado backtest QQQ standard start 01 01 2020 end 12 31 2023
         prado backtest QQQ walk-forward start 01 01 2023 end 12 31 2025
         prado backtest QQQ combo start 01 01 2020 end 12 31 2023 wf 12 31 2025
+        prado backtest QQQ standard enable-ml
+        prado backtest QQQ standard enable-ml enable-ml-explain
+        prado backtest QQQ standard enable-ml use-ml-v2
     """
     from .date_parser import parse_backtest_args
 
@@ -263,6 +824,21 @@ def backtest(
     end_date = parsed['end_date']
     wf_date = parsed['wf_date']
     iterations = parsed['iterations']
+
+    # Parse ML flags (space-based)
+    enable_ml = 'enable-ml' in args
+    enable_ml_explain = 'enable-ml-explain' in args
+    use_ml_v2 = 'use-ml-v2' in args
+
+    # Validate: enable-ml-explain requires enable-ml
+    if enable_ml_explain and not enable_ml:
+        console.print("[red]Error:[/red] enable-ml-explain requires enable-ml")
+        raise typer.Exit(code=1)
+
+    # Validate: use-ml-v2 requires enable-ml
+    if use_ml_v2 and not enable_ml:
+        console.print("[red]Error:[/red] use-ml-v2 requires enable-ml")
+        raise typer.Exit(code=1)
 
     # Seed for determinism
     _seed_all(seed)
@@ -300,7 +876,13 @@ def backtest(
 
         # Create config
         from afml_system.backtest import BacktestConfig
-        config = BacktestConfig(symbol=symbol, random_seed=seed)
+        config = BacktestConfig(
+            symbol=symbol,
+            random_seed=seed,
+            enable_ml_fusion=enable_ml,
+            enable_ml_explain=enable_ml_explain,
+            use_ml_features_v2=use_ml_v2
+        )
 
         # Run combined backtest
         result = evo_backtest_combined(
@@ -416,7 +998,10 @@ def backtest(
 
         config = BacktestConfig(
             symbol=symbol,
-            random_seed=seed
+            random_seed=seed,
+            enable_ml_fusion=enable_ml,
+            enable_ml_explain=enable_ml_explain,
+            use_ml_features_v2=use_ml_v2
         )
 
         # Run appropriate backtest

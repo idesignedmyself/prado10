@@ -25,6 +25,13 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from collections import defaultdict
 
+# ML Fusion imports (optional - gracefully degraded if models not trained)
+try:
+    from afml_system.ml.hybrid_fusion import HybridMLFusion
+    ML_FUSION_AVAILABLE = True
+except ImportError:
+    ML_FUSION_AVAILABLE = False
+
 
 # ============================================================================
 # STABILIZED ALLOCATOR WEIGHTS
@@ -613,17 +620,25 @@ class EvolutionaryAllocator:
     Sweep G.1 - Institutional-grade risk controls and diagnostics.
     """
 
-    def __init__(self, allocator_mode: str = "stabilized"):
+    def __init__(self, allocator_mode: str = "stabilized", enable_ml_fusion: bool = False):
         """
         Initialize allocator components.
 
         Args:
             allocator_mode: "stabilized" (default, hybrid soft-clip + L1) or "legacy"
+            enable_ml_fusion: Enable ML horizon + regime fusion (requires trained models)
         """
         self.weights_engine = AllocationWeights()
         self.conflict_engine = ConflictEngine()
         self.stabilizer = StabilizedAllocatorWeights()
         self.allocator_mode = allocator_mode  # "stabilized" or "legacy"
+
+        # ML Fusion (optional - Phase 1)
+        self.enable_ml_fusion = enable_ml_fusion and ML_FUSION_AVAILABLE
+        if self.enable_ml_fusion:
+            self.ml_fusion = HybridMLFusion()
+        else:
+            self.ml_fusion = None
 
     def allocate(
         self,
@@ -631,7 +646,11 @@ class EvolutionaryAllocator:
         regime: str,
         horizon: str,
         corr_data: Optional[Dict[str, Any]] = None,
-        risk_params: Optional[Dict[str, Any]] = None
+        risk_params: Optional[Dict[str, Any]] = None,
+        ml_horizon_signal: float = 0.0,
+        ml_regime_signal: float = 0.0,
+        ml_horizon_conf: float = 0.5,
+        ml_regime_conf: float = 0.5
     ) -> AllocationDecision:
         """
         Allocate portfolio across strategies.
@@ -645,6 +664,7 @@ class EvolutionaryAllocator:
         6. Apply correlation penalties
         7. Normalize weights
         8. Compute blended forecast
+        8.5. ML Fusion (optional - if enabled)
         9. Apply conflict factor
         10. Apply risk controls
         11. Final position ∈ [-1, +1]
@@ -655,6 +675,10 @@ class EvolutionaryAllocator:
             horizon: Time horizon
             corr_data: Correlation data (uniqueness + penalties)
             risk_params: Risk control parameters
+            ml_horizon_signal: ML horizon model signal [-1, 1]
+            ml_regime_signal: ML regime model signal [-1, 1]
+            ml_horizon_conf: ML horizon model confidence [0, 1]
+            ml_regime_conf: ML regime model confidence [0, 1]
 
         Returns:
             AllocationDecision
@@ -737,6 +761,27 @@ class EvolutionaryAllocator:
         blended_return = _safe_float(blended_return, 0.0)
         blended_volatility = _safe_float(blended_volatility, DEFAULT_FALLBACK_VOL)
 
+        # Step 8.5: ML Fusion (Phase 2 - Full Activation)
+        # If ML models are trained and enabled, fuse ML predictions with rule-based signals
+        ml_diagnostics = {}
+        if self.enable_ml_fusion and self.ml_fusion is not None:
+            # Normalize blended_return to [-1, 1] range for fusion
+            rule_signal = np.tanh(blended_return / max(blended_volatility, EPSILON))
+
+            # Fuse rule-based signal with ML predictions
+            final_signal, ml_diagnostics = self.ml_fusion.fuse(
+                rule_signal=rule_signal,
+                ml_horizon_signal=ml_horizon_signal,
+                ml_regime_signal=ml_regime_signal,
+                ml_horizon_conf=ml_horizon_conf,
+                ml_regime_conf=ml_regime_conf,
+                ml_weight=0.25
+            )
+
+            # Apply fused signal back to blended_return
+            # Scale it back by volatility
+            blended_return = final_signal * blended_volatility
+
         # Step 9: Apply conflict factor (Sweep G.1 - Enhanced)
         conflict_ratio, conflict_factor = self.conflict_engine.compute_conflict(signals)
 
@@ -769,7 +814,7 @@ class EvolutionaryAllocator:
         risk_adjusted_position = position
         position = float(np.clip(position, -1.0, 1.0))
 
-        # Build decision with enhanced diagnostics (Sweep G.1 + Stabilization)
+        # Build decision with enhanced diagnostics (Sweep G.1 + Stabilization + ML Fusion)
         decision = AllocationDecision(
             final_position=position,
             strategy_weights=weights,
@@ -792,7 +837,9 @@ class EvolutionaryAllocator:
                 'blended_return': float(blended_return),
                 'blended_volatility': float(blended_volatility),
                 'n_signals': len(signals),
-                'kill_reason': kill_reason
+                'kill_reason': kill_reason,
+                'ml_fusion_enabled': self.enable_ml_fusion,
+                'ml_diagnostics': ml_diagnostics
             }
         )
 

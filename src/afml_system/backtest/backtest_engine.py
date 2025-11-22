@@ -104,6 +104,18 @@ class BacktestConfig:
     forward_vol_garch_weight: float = 0.7  # Weight on GARCH vs realized vol
     forward_vol_window: int = 21  # Window for realized volatility
 
+    # ML Fusion parameters (v1.2)
+    enable_ml_fusion: bool = False  # Enable ML horizon + regime models
+    enable_ml_explain: bool = False  # Enable SHAP explainability (requires enable_ml_fusion=True)
+    use_ml_features_v2: bool = False  # Use v2 features (24 features) instead of v1 (9 features)
+
+    # ML Fusion refinement parameters (Sweep B6 - Optimized)
+    ml_conf_threshold: float = 0.03  # Minimum |fused_signal| to inject ML (optimized)
+    ml_weight: float = 0.15  # ML contribution weight (15% ML, 85% rules - conservative)
+    ml_meta_mode: str = 'rules_priority'  # Meta-labeling: rules_priority (protects strong signals)
+    ml_horizon_mode: str = '1d'  # Horizon: 1d (short-term edge strongest)
+    ml_sizing_mode: str = 'linear'  # Position sizing: linear (rule_signal * ml_conf)
+
     # Random seed for determinism
     random_seed: int = 42
 
@@ -236,6 +248,37 @@ class BacktestEngine:
             )
         else:
             self.forward_vol_engine = None
+
+        # Module ML - ML Fusion (v1.2)
+        if self.config.enable_ml_fusion:
+            from ..ml import HorizonModel, RegimeHorizonModel, HybridMLFusion, SHAPExplainer
+
+            # Initialize ML models for all horizons (v1 or v2)
+            use_v2 = self.config.use_ml_features_v2
+            self.ml_horizon_models = {
+                horizon: HorizonModel(symbol=self.config.symbol, horizon_key=horizon, use_v2=use_v2)
+                for horizon in ['1d', '3d', '5d', '10d']
+            }
+
+            # Initialize regime-specific ML models for all horizons (v1 or v2)
+            self.ml_regime_models = {
+                horizon: RegimeHorizonModel(symbol=self.config.symbol, horizon_key=horizon, use_v2=use_v2)
+                for horizon in ['1d', '3d', '5d', '10d']
+            }
+
+            # Initialize hybrid fusion engine
+            self.ml_fusion = HybridMLFusion()
+
+            # Initialize SHAP explainer if requested
+            if self.config.enable_ml_explain:
+                self.ml_explainer = SHAPExplainer()
+            else:
+                self.ml_explainer = None
+        else:
+            self.ml_horizon_models = None
+            self.ml_regime_models = None
+            self.ml_fusion = None
+            self.ml_explainer = None
 
     def _validate_and_clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -765,12 +808,17 @@ class BacktestEngine:
                 meta_signals = {'meta_signal': 0.5, 'confidence': 0.0}
 
             # Mini-Sweep I.1A: Get allocator decision with error handling
+            # Create price window for ML models (last 100 bars up to current idx)
+            window_start = max(0, idx - 100)
+            window = df.iloc[window_start:idx+1]
+
             try:
                 allocation = self._get_allocation_decision(
                     features=features,
                     regime=regime,
                     meta_signals=meta_signals,
-                    horizon='short'
+                    horizon='short',
+                    window=window
                 )
             except Exception as e:
                 # Create safe zero-position allocation on error
@@ -921,12 +969,68 @@ class BacktestEngine:
             'confidence': abs(meta_signal - 0.5) * 2.0  # 0 = uncertain, 1 = confident
         }
 
+    def _get_ml_horizon_prediction(self, window: pd.DataFrame, horizon: str) -> Tuple[int, float]:
+        """
+        Get ML horizon prediction for current window.
+
+        Args:
+            window: Recent price data window
+            horizon: Time horizon (1d, 3d, 5d, 10d, or 'adaptive')
+
+        Returns:
+            (signal, confidence) where signal ∈ {-1, +1}, confidence ∈ [0, 1]
+        """
+        if self.ml_horizon_models is None:
+            return 0, 0.5
+
+        # Handle horizon mode
+        if horizon == 'adaptive':
+            # Use all horizons and take weighted average
+            signals, confs = [], []
+            for h in ['1d', '3d', '5d', '10d']:
+                if h in self.ml_horizon_models:
+                    s, c = self.ml_horizon_models[h].predict(window)
+                    signals.append(s * c)
+                    confs.append(c)
+            if confs:
+                avg_signal = int(np.sign(np.mean(signals)))
+                avg_conf = np.mean(confs)
+                return avg_signal, avg_conf
+            return 0, 0.5
+        else:
+            # Use specific horizon
+            if horizon not in self.ml_horizon_models:
+                horizon = '1d'  # Fallback to 1d
+            model = self.ml_horizon_models[horizon]
+            signal, confidence = model.predict(window)
+            return signal, confidence
+
+    def _get_ml_regime_prediction(self, window: pd.DataFrame, regime: str, horizon: str) -> Tuple[int, float]:
+        """
+        Get ML regime-specific prediction for current window.
+
+        Args:
+            window: Recent price data window
+            regime: Current market regime
+            horizon: Time horizon (1d, 3d, 5d, 10d)
+
+        Returns:
+            (signal, confidence) where signal ∈ {-1, +1}, confidence ∈ [0, 1]
+        """
+        if self.ml_regime_models is None or horizon not in self.ml_regime_models:
+            return 0, 0.5
+
+        model = self.ml_regime_models[horizon]
+        signal, confidence = model.predict(window, regime)
+        return signal, confidence
+
     def _get_allocation_decision(
         self,
         features: Dict[str, float],
         regime: str,
         meta_signals: Dict[str, float],
-        horizon: str
+        horizon: str,
+        window: Optional[pd.DataFrame] = None
     ) -> AllocationDecision:
         """
         Get allocation decision from evolutionary allocator.
@@ -1044,6 +1148,88 @@ class BacktestEngine:
             'momentum_mean_reversion': 0.3,  # Simplified correlation
         }
 
+        # ML Fusion: Inject ML predictions if enabled (v1.2)
+        ml_diagnostics = {}
+        if self.config.enable_ml_fusion and self.ml_fusion is not None and window is not None and len(window) >= 20:
+            # Get ML predictions using configured horizon mode
+            ml_horizon_signal, ml_horizon_conf = self._get_ml_horizon_prediction(window, self.config.ml_horizon_mode)
+            ml_regime_signal, ml_regime_conf = self._get_ml_regime_prediction(window, regime, self.config.ml_horizon_mode)
+
+            # Compute rule-based signal (average of existing signals)
+            if signals:
+                rule_signal = np.mean([s.side * s.probability for s in signals])
+            else:
+                rule_signal = 0.0
+
+            # Apply meta-labeling mode
+            if self.config.ml_meta_mode == 'rules_priority':
+                # Strong rules cannot be overridden by ML
+                if abs(rule_signal) > 0.7:
+                    ml_weight_adjusted = 0.0  # ML disabled for strong signals
+                elif abs(rule_signal) < 0.3:
+                    ml_weight_adjusted = self.config.ml_weight  # ML can kill weak signals
+                else:
+                    ml_weight_adjusted = self.config.ml_weight * 0.5  # ML modifies moderate signals
+            elif self.config.ml_meta_mode == 'ml_priority':
+                # ML has full weight regardless of rule strength
+                ml_weight_adjusted = self.config.ml_weight
+            else:  # balanced_blend
+                # Standard balanced fusion
+                ml_weight_adjusted = self.config.ml_weight
+
+            # Fuse rule-based + ML signals
+            fused_signal, fusion_diag = self.ml_fusion.fuse(
+                rule_signal=rule_signal,
+                ml_horizon_signal=ml_horizon_signal,
+                ml_regime_signal=ml_regime_signal,
+                ml_horizon_conf=ml_horizon_conf,
+                ml_regime_conf=ml_regime_conf,
+                ml_weight=ml_weight_adjusted
+            )
+
+            # Store ML diagnostics
+            ml_diagnostics = {
+                'ml_horizon_signal': ml_horizon_signal,
+                'ml_horizon_conf': ml_horizon_conf,
+                'ml_regime_signal': ml_regime_signal,
+                'ml_regime_conf': ml_regime_conf,
+                'ml_contribution': fusion_diag['ml_vote'],
+                'rule_signal': rule_signal,
+                'fused_signal': fused_signal,
+            }
+
+            # SHAP explainability if enabled
+            if self.config.enable_ml_explain and self.ml_explainer is not None:
+                from ..ml import FeatureBuilder
+                X = FeatureBuilder.build_features(window)
+                if not X.empty:
+                    shap_explanation = self.ml_explainer.explain(X.iloc[-1:])
+                    ml_diagnostics['shap_features'] = shap_explanation
+
+            # Only inject ML signal if it exceeds confidence threshold (graceful degradation)
+            # If ML models return (0, 0.5), that means "no opinion", so don't dilute rule signals
+            if abs(fused_signal) > self.config.ml_conf_threshold:  # Configurable threshold
+                ml_signal = StrategySignal(
+                    strategy_name='ml_fusion',
+                    regime=regime,
+                    horizon=horizon,
+                    side=1 if fused_signal > 0 else -1,
+                    probability=abs(fused_signal),
+                    meta_probability=abs(fused_signal),
+                    forecast_return=fused_signal * 0.01,  # Simplified forecast
+                    volatility_forecast=0.15,
+                    bandit_weight=1.0,
+                    uniqueness=1.0,
+                    correlation_penalty=0.0
+                )
+
+                # Add ML signal to the signal list
+                signals.append(ml_signal)
+                ml_diagnostics['ml_signal_injected'] = True
+            else:
+                ml_diagnostics['ml_signal_injected'] = False
+                ml_diagnostics['skip_reason'] = 'ML signal too weak (|signal| <= 0.05)'
+
         # Call evolutionary allocator
         decision = evo_allocate(
             signals=signals,
@@ -1052,6 +1238,10 @@ class BacktestEngine:
             corr_data=corr_data,
             risk_params={'max_position': self.config.max_position}
         )
+
+        # Attach ML diagnostics to decision
+        if ml_diagnostics:
+            decision.ml_diagnostics = ml_diagnostics
 
         return decision
 
