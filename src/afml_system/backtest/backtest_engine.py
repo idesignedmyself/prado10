@@ -1770,12 +1770,72 @@ def evo_backtest_mc2(
         results = {}
 
         # 1. Block Bootstrap (if enabled)
+        # FIXED: Now runs actual strategy on bootstrapped data instead of just testing raw returns
         if run_block_bootstrap:
+            # First, run actual backtest to get "actual" Sharpe
+            engine = BacktestEngine(config=config)
+            actual_result = engine.run_standard(symbol=symbol, df=df)
+            actual_sharpe = actual_result.sharpe_ratio
+
+            # Now run bootstrap simulations with strategy backtests
             returns = df['close'].pct_change().dropna()
-            results['block_bootstrap'] = mc2_engine.block_bootstrap.run(
-                returns=returns,
-                block_size=20,
-                n_sim=n_sim
+            blocks = mc2_engine.block_bootstrap._create_blocks(returns, block_size=20, overlap=True)
+
+            mc_sharpes = []
+            for _ in range(n_sim):
+                # Resample blocks to create bootstrap price path
+                bootstrap_returns = mc2_engine.block_bootstrap._resample_blocks(blocks, len(returns))
+                bootstrap_returns = mc2_engine.block_bootstrap._match_volatility(bootstrap_returns, returns)
+
+                # Reconstruct OHLCV from bootstrap returns
+                bootstrap_df = df.copy()
+                # Create price path starting from second row (first row unchanged since pct_change skips it)
+                price_path = (1 + pd.Series(bootstrap_returns, index=df.index[1:])).cumprod()
+                bootstrap_df.loc[df.index[1:], 'close'] = df['close'].iloc[0] * price_path.values
+
+                # Scale OHLV proportionally
+                scale_factor = bootstrap_df['close'] / df['close']
+                bootstrap_df['open'] = df['open'] * scale_factor
+                bootstrap_df['high'] = df['high'] * scale_factor
+                bootstrap_df['low'] = df['low'] * scale_factor
+
+                # Run backtest on bootstrapped data
+                mc_sharpe = backtest_func(bootstrap_df)
+                mc_sharpes.append(mc_sharpe)
+
+            # Build MC2Result manually
+            import numpy as np
+            mc_sharpes = np.array(mc_sharpes)
+            mc_sharpes = np.clip(mc_sharpes, -10.0, 10.0)
+
+            from .monte_carlo_mc2 import MC2Result, BlockBootstrapConfig
+
+            better_count = np.sum(actual_sharpe >= mc_sharpes)
+            skill_percentile = float(better_count / n_sim * 100.0)
+            worse_count = np.sum(actual_sharpe <= mc_sharpes)
+            p_value = float(min(better_count, worse_count) / n_sim * 2.0)
+            p_value = min(p_value, 1.0)
+
+            results['block_bootstrap'] = MC2Result(
+                simulation_type="block_bootstrap",
+                n_simulations=n_sim,
+                actual_sharpe=float(actual_sharpe),
+                mc_sharpe_mean=float(np.mean(mc_sharpes)),
+                mc_sharpe_std=float(np.std(mc_sharpes)),
+                mc_sharpe_min=float(np.min(mc_sharpes)),
+                mc_sharpe_max=float(np.max(mc_sharpes)),
+                mc_sharpe_median=float(np.median(mc_sharpes)),
+                skill_percentile=skill_percentile,
+                p_value=p_value,
+                significant=p_value < 0.05,
+                config=BlockBootstrapConfig(block_size=20, overlap=True, preserve_volatility=True, seed=config.random_seed),
+                distribution={
+                    'q05': float(np.percentile(mc_sharpes, 5)),
+                    'q25': float(np.percentile(mc_sharpes, 25)),
+                    'q50': float(np.median(mc_sharpes)),
+                    'q75': float(np.percentile(mc_sharpes, 75)),
+                    'q95': float(np.percentile(mc_sharpes, 95))
+                }
             )
 
         # 2. Turbulence Tests (if enabled)
